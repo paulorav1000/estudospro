@@ -385,12 +385,131 @@
         .sync-status { font-size: 0.7rem; color: var(--success); }
         .sync-status.syncing { color: var(--warning); }
         .sync-status.error { color: var(--danger); }
+    
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .sidebar { 
+                position: fixed;
+                left: -280px;
+                width: 280px;
+                z-index: 1000;
+                transition: left 0.3s ease;
+            }
+            .sidebar.open { left: 0; }
+            .main { margin-left: 0; padding: 16px; padding-top: 70px; }
+            .mobile-header {
+                display: flex;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 60px;
+                background: var(--bg-secondary);
+                border-bottom: 1px solid var(--border);
+                align-items: center;
+                padding: 0 16px;
+                z-index: 999;
+            }
+            .menu-toggle {
+                background: none;
+                border: none;
+                color: var(--text);
+                font-size: 1.5rem;
+                cursor: pointer;
+                padding: 8px;
+            }
+            .mobile-title {
+                flex: 1;
+                text-align: center;
+                font-weight: 700;
+                color: var(--accent);
+            }
+            .mobile-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 999;
+            }
+            .mobile-overlay.open { display: block; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .grid-2 { grid-template-columns: 1fr; }
+            .stat-value { font-size: 1.4rem; }
+            .page-title { font-size: 1.3rem; }
+            .login-card { padding: 24px; }
+            .login-logo { font-size: 3rem; }
+            .login-title { font-size: 1.5rem; }
+        }
+        @media (min-width: 769px) {
+            .mobile-header { display: none; }
+            .mobile-overlay { display: none !important; }
+        }
     </style>
 
     <!-- Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js">
+// Mobile Menu
+function toggleMobileMenu() {
+    document.querySelector('.sidebar').classList.toggle('open');
+    document.getElementById('mobileOverlay').classList.toggle('open');
+}
+
+// Fechar menu ao clicar em item
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if(window.innerWidth <= 768) {
+                document.querySelector('.sidebar').classList.remove('open');
+                document.getElementById('mobileOverlay').classList.remove('open');
+            }
+        });
+    });
+});
+
+</script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js">
+// Mobile Menu
+function toggleMobileMenu() {
+    document.querySelector('.sidebar').classList.toggle('open');
+    document.getElementById('mobileOverlay').classList.toggle('open');
+}
+
+// Fechar menu ao clicar em item
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if(window.innerWidth <= 768) {
+                document.querySelector('.sidebar').classList.remove('open');
+                document.getElementById('mobileOverlay').classList.remove('open');
+            }
+        });
+    });
+});
+
+</script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js">
+// Mobile Menu
+function toggleMobileMenu() {
+    document.querySelector('.sidebar').classList.toggle('open');
+    document.getElementById('mobileOverlay').classList.toggle('open');
+}
+
+// Fechar menu ao clicar em item
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if(window.innerWidth <= 768) {
+                document.querySelector('.sidebar').classList.remove('open');
+                document.getElementById('mobileOverlay').classList.remove('open');
+            }
+        });
+    });
+});
+
+</script>
 </head>
 <body>
     <!-- TELA DE LOGIN -->
@@ -409,6 +528,14 @@
 
     <!-- APP PRINCIPAL -->
     <div class="app" id="appWrapper" style="display:none;">
+        <!-- Mobile Header -->
+        <div class="mobile-header">
+            <button class="menu-toggle" onclick="toggleMobileMenu()">☰</button>
+            <div class="mobile-title">📚 EstudosPRO</div>
+            <div style="width:40px;"></div>
+        </div>
+        <!-- Mobile Overlay -->
+        <div class="mobile-overlay" id="mobileOverlay" onclick="toggleMobileMenu()"></div>
     <nav class="sidebar">
         <div class="logo">📚 EstudosPRO</div>
         <div class="logo-sub">TJPR 2025</div>
@@ -3597,6 +3724,25 @@ function limparSessoes() {
 }
 
 document.addEventListener('DOMContentLoaded', () => { loadTheme(); refreshDashboard(); });
+
+// Mobile Menu
+function toggleMobileMenu() {
+    document.querySelector('.sidebar').classList.toggle('open');
+    document.getElementById('mobileOverlay').classList.toggle('open');
+}
+
+// Fechar menu ao clicar em item
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if(window.innerWidth <= 768) {
+                document.querySelector('.sidebar').classList.remove('open');
+                document.getElementById('mobileOverlay').classList.remove('open');
+            }
+        });
+    });
+});
+
 </script>
 </body>
 </html>
