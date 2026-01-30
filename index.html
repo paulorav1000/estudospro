@@ -388,18 +388,36 @@
     
         /* Mobile Responsive */
         @media (max-width: 768px) {
+            .app { display: block !important; }
             .sidebar { 
                 position: fixed !important;
                 left: -280px !important;
+                top: 0 !important;
                 width: 280px !important;
-                z-index: 1000 !important;
+                height: 100vh !important;
+                z-index: 1001 !important;
                 transition: left 0.3s ease !important;
                 display: block !important;
-                height: 100vh !important;
                 overflow-y: auto !important;
                 background: var(--bg-secondary) !important;
+                padding-top: 20px !important;
             }
-            .sidebar.open { left: 0 !important; }
+            .sidebar.open { 
+                left: 0 !important; 
+            }
+            .mobile-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 1000;
+            }
+            .mobile-overlay.open { 
+                display: block !important; 
+            }
             .main { margin-left: 0; padding: 16px; padding-top: 70px; }
             .mobile-header {
                 display: flex;
@@ -428,17 +446,7 @@
                 font-weight: 700;
                 color: var(--accent);
             }
-            .mobile-overlay {
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0,0,0,0.5);
-                z-index: 999;
-            }
-            .mobile-overlay.open { display: block; }
+
             .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
             .grid-2 { grid-template-columns: 1fr; }
             .stat-value { font-size: 1.4rem; }
@@ -479,7 +487,7 @@
         <div class="mobile-header">
             <button class="menu-toggle" onclick="toggleMobileMenu()">☰</button>
             <div class="mobile-title">📚 EstudosPRO</div>
-            <div style="width:40px;"></div>
+            <button class="menu-toggle" onclick="logout()" title="Sair">🚪</button>
         </div>
         <!-- Mobile Overlay -->
         <div class="mobile-overlay" id="mobileOverlay" onclick="toggleMobileMenu()"></div>
@@ -1228,28 +1236,27 @@ async function carregarDaNuvem() {
     if(!currentUser) return;
     
     setSyncStatus('syncing', '🔄 Carregando...');
+    console.log('Carregando dados para UID:', currentUser.uid);
     
     try {
         const doc = await db.collection('usuarios').doc(currentUser.uid).get();
+        console.log('Documento existe?', doc.exists);
         
         if(doc.exists) {
             const dados = doc.data();
+            console.log('Dados da nuvem:', dados);
             if(dados.state) {
                 state = { ...defaultState, ...dados.state };
-                console.log('Dados carregados da nuvem');
+                // Garantir que arrays existem
+                state.disciplinas = state.disciplinas || [];
+                state.sessoes = state.sessoes || [];
+                state.revisoes = state.revisoes || [];
+                state.questoes = state.questoes || [];
+                console.log('State carregado:', state.disciplinas.length, 'disciplinas');
             }
         } else {
-            // Primeiro acesso - verificar dados locais
-            const local = localStorage.getItem(STORAGE_KEY);
-            if(local) {
-                try {
-                    state = { ...defaultState, ...JSON.parse(local) };
-                    await salvarNaNuvem();
-                    console.log('Dados locais migrados para nuvem');
-                } catch(e) {
-                    state = { ...defaultState };
-                }
-            }
+            console.log('Primeiro acesso - documento não existe');
+            state = { ...defaultState };
         }
         
         // Atualizar interface
@@ -1258,16 +1265,9 @@ async function carregarDaNuvem() {
         
     } catch(error) {
         console.error('Erro ao carregar:', error);
-        setSyncStatus('error', '❌ Erro');
-        
-        // Fallback local
-        const local = localStorage.getItem(STORAGE_KEY);
-        if(local) {
-            try {
-                state = { ...defaultState, ...JSON.parse(local) };
-                refreshAll();
-            } catch(e) {}
-        }
+        setSyncStatus('error', '❌ Erro: ' + error.message);
+        state = { ...defaultState };
+        refreshAll();
     }
 }
 
