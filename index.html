@@ -1219,9 +1219,16 @@ auth.onAuthStateChanged((user) => {
         currentUser = user;
         document.getElementById('loginContainer').style.display = 'none';
         document.getElementById('appWrapper').style.display = 'flex';
-        document.getElementById('userAvatar').src = user.photoURL || '';
-        document.getElementById('userName').textContent = user.displayName || user.email.split('@')[0];
-        document.getElementById('userEmail').textContent = user.email;
+        
+        var avatarEl = document.getElementById('userAvatar');
+        var nameEl = document.getElementById('userName');
+        var emailEl = document.getElementById('userEmail');
+        
+        if(avatarEl) avatarEl.src = user.photoURL || '';
+        if(nameEl) nameEl.textContent = user.displayName || user.email.split('@')[0];
+        if(emailEl) emailEl.textContent = user.email;
+        
+        console.log('Usuário logado:', user.email, 'UID:', user.uid);
         
         // Carregar dados da nuvem
         carregarDaNuvem();
