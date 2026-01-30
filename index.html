@@ -500,6 +500,7 @@
                 <div class="user-name-box" id="userName">Usuário</div>
                 <div class="sync-status" id="syncStatus">☁️ Sincronizado</div>
             </div>
+            <button onclick="logout()" title="Sair" style="background:none;border:none;cursor:pointer;font-size:1.2rem;padding:4px;">🚪</button>
         </div>
         <button class="theme-toggle" onclick="toggleTheme()" title="Alternar tema">
             <span id="themeIcon">🌙</span>
@@ -1244,30 +1245,60 @@ async function carregarDaNuvem() {
         
         if(doc.exists) {
             const dados = doc.data();
-            console.log('Dados da nuvem:', dados);
-            if(dados.state) {
+            if(dados.state && dados.state.disciplinas && dados.state.disciplinas.length > 0) {
+                // Nuvem tem dados - usar eles
                 state = { ...defaultState, ...dados.state };
-                // Garantir que arrays existem
                 state.disciplinas = state.disciplinas || [];
                 state.sessoes = state.sessoes || [];
                 state.revisoes = state.revisoes || [];
                 state.questoes = state.questoes || [];
-                console.log('State carregado:', state.disciplinas.length, 'disciplinas');
+                console.log('Dados carregados da NUVEM:', state.disciplinas.length, 'disciplinas');
+                setSyncStatus('synced', '☁️ Sincronizado');
+            } else {
+                // Nuvem está vazia - verificar local e migrar
+                console.log('Nuvem vazia, verificando local...');
+                await tentarMigrarLocal();
             }
         } else {
-            console.log('Primeiro acesso - documento não existe');
-            state = { ...defaultState };
+            // Documento não existe - verificar local e migrar
+            console.log('Documento não existe, verificando local...');
+            await tentarMigrarLocal();
         }
         
         // Atualizar interface
         refreshAll();
-        setSyncStatus('synced', '☁️ Sincronizado');
         
     } catch(error) {
         console.error('Erro ao carregar:', error);
         setSyncStatus('error', '❌ Erro: ' + error.message);
         state = { ...defaultState };
         refreshAll();
+    }
+}
+
+async function tentarMigrarLocal() {
+    const local = localStorage.getItem(STORAGE_KEY);
+    if(local) {
+        try {
+            const dadosLocal = JSON.parse(local);
+            if(dadosLocal.disciplinas && dadosLocal.disciplinas.length > 0) {
+                state = { ...defaultState, ...dadosLocal };
+                console.log('Migrando', state.disciplinas.length, 'disciplinas do LOCAL para NUVEM');
+                await salvarNaNuvem();
+                setSyncStatus('synced', '☁️ Migrado!');
+                showToast('Dados migrados para a nuvem!');
+            } else {
+                state = { ...defaultState };
+                setSyncStatus('synced', '☁️ Sincronizado');
+            }
+        } catch(e) {
+            console.error('Erro ao migrar local:', e);
+            state = { ...defaultState };
+            setSyncStatus('synced', '☁️ Sincronizado');
+        }
+    } else {
+        state = { ...defaultState };
+        setSyncStatus('synced', '☁️ Sincronizado');
     }
 }
 
