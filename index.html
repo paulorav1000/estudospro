@@ -1456,7 +1456,7 @@ function refreshDashboard() {
     refreshStreakXP();
     const dp = document.getElementById('disciplinasProgress');
     if(!state.disciplinas.length) { dp.innerHTML = '<div class="empty"><div class="empty-icon">📚</div><div>Cadastre disciplinas</div></div>'; }
-    else { dp.innerHTML = state.disciplinas.map(d => { const t = d.topicos.length; const done = d.topicos.filter(x => x.status === 'mastered').length; const pct = t > 0 ? Math.round((done/t)*100) : 0; return '<div class="disc-item"><div class="disc-header"><span class="disc-name">'+d.nome+'</span><span class="disc-pct">'+pct+'%</span></div><div class="disc-bar"><div class="disc-fill" style="width:'+pct+'%"></div></div></div>'; }).join(''); }
+    else { dp.innerHTML = state.disciplinas.map(d => { const t = d.topicos.length; const done = d.topicos.filter(x => x.status !== 'not-studied').length; const pct = t > 0 ? Math.round((done/t)*100) : 0; return '<div class="disc-item"><div class="disc-header"><span class="disc-name">'+d.nome+'</span><span class="disc-pct">'+pct+'%</span></div><div class="disc-bar"><div class="disc-fill" style="width:'+pct+'%"></div></div></div>'; }).join(''); }
 }
 
 // Registro
