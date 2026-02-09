@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EstudosPRO</title>
+    <title>EstudosPRO - TJPR 2025</title>
     <style>
         :root { --bg-primary: #0a0f1c; --bg-secondary: #111827; --bg-card: #1a2235; --accent: #6366f1; --success: #10b981; --warning: #f59e0b; --danger: #ef4444; --cyan: #06b6d4; --text: #f1f5f9; --text-sec: #94a3b8; --text-muted: #64748b; --border: #2d3a52; }
         [data-theme="light"] { --bg-primary: #f1f5f9; --bg-secondary: #ffffff; --bg-card: #ffffff; --text: #1e293b; --text-sec: #475569; --text-muted: #64748b; --border: #e2e8f0; }
@@ -1203,6 +1203,28 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
+  // Se o pop-up for bloqueado pelo navegador, usamos redirect como fallback.
+  // Isso também captura o retorno após o usuário autenticar no Google.
+  auth.getRedirectResult()
+    .then((result) => {
+      // O onAuthStateChanged abaixo já atualiza a UI; aqui só garantimos que erros apareçam.
+      if (result && result.user) {
+        // login concluído via redirect
+      }
+    })
+    .catch((error) => {
+      console.error('Erro no retorno do login (redirect):', error);
+      const code = error?.code || 'unknown';
+      const msg = error?.message || 'Erro desconhecido.';
+      if (code === 'auth/unauthorized-domain') {
+        showToast('Domínio não autorizado para login. Você precisa adicionar este domínio em Authentication > Settings > Authorized domains no Firebase.', 'error');
+      } else if (code === 'auth/operation-not-allowed') {
+        showToast('Login com Google não está habilitado no Firebase (Authentication > Sign-in method).', 'error');
+      } else {
+        showToast(`Erro no login (redirect) (${code}): ${msg}`, 'error');
+      }
+    });
+
 const db = firebase.firestore();
 
 let currentUser = null;
@@ -1210,15 +1232,44 @@ let syncTimeout = null;
 
 // Login com Google
 function loginComGoogle() {
-    const provider = new firebase.auth.GoogleAuthProvider();
-    auth.signInWithPopup(provider)
-        .then((result) => {
-            console.log('Login OK:', result.user.email);
-        })
-        .catch((error) => {
-            console.error('Erro login:', error);
-            showToast('Erro ao fazer login: ' + error.message, 'error');
-        });
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+
+  auth.signInWithPopup(provider)
+    .catch(async (error) => {
+      console.error('Erro no login com Google:', error);
+
+      const code = error?.code || 'unknown';
+      const msg = error?.message || 'Erro desconhecido.';
+
+      // Fallback quando o navegador bloqueia pop-ups (muito comum em alguns ambientes).
+      if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        showToast('Seu navegador bloqueou o pop-up. Vou tentar o login por redirecionamento…', 'info');
+        try {
+          await auth.signInWithRedirect(provider);
+          return;
+        } catch (e2) {
+          console.error('Falha também no redirect:', e2);
+          const code2 = e2?.code || 'unknown';
+          const msg2 = e2?.message || 'Erro desconhecido.';
+          showToast(`Erro ao fazer login (${code2}): ${msg2}`, 'error');
+          return;
+        }
+      }
+
+      // Erros que NÃO são resolvidos com código (dependem do console do Firebase).
+      if (code === 'auth/unauthorized-domain') {
+        showToast('Domínio não autorizado para login. Adicione este domínio em Authentication > Settings > Authorized domains no Firebase.', 'error');
+        return;
+      }
+      if (code === 'auth/operation-not-allowed') {
+        showToast('Login com Google não está habilitado no Firebase (Authentication > Sign-in method).', 'error');
+        return;
+      }
+
+      // Mensagem padrão com código (ajuda a diagnosticar).
+      showToast(`Erro ao fazer login (${code}): ${msg}`, 'error');
+    });
 }
 
 // Logout
