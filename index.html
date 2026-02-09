@@ -593,7 +593,7 @@
                     </div>
                     <div class="timer-display" id="timerDisplay">00:00:00</div>
                     <div class="form-group"><label class="form-label">Disciplina *</label><select class="form-select" id="timerDisciplina" onchange="updateTimerTopicos()"><option value="">Selecione</option></select></div>
-                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="timerTopico"><option value="">Geral</option></select></div>
+                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="timerTopico" onchange="updateSelectedTopicoNumero('timer')"><option value="">Geral</option></select><div id="timerTopicoNumero" style="margin-top:6px;font-size:0.75rem;color:var(--text-muted);display:none;"></div></div>
                     <div class="timer-controls">
                         <button class="btn btn-primary" id="btnStart" onclick="timerStart()">▶️ Iniciar</button>
                         <button class="btn btn-secondary" id="btnPause" onclick="timerPause()" disabled>⏸️ Pausar</button>
@@ -623,7 +623,7 @@
                     <div class="card-header"><div class="card-title">✏️ Manual</div></div>
                     <div class="form-group"><label class="form-label">Data *</label><input type="date" class="form-input" id="manualData"></div>
                     <div class="form-group"><label class="form-label">Disciplina *</label><select class="form-select" id="manualDisciplina" onchange="updateManualTopicos()"><option value="">Selecione</option></select></div>
-                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="manualTopico"><option value="">Geral</option></select></div>
+                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="manualTopico" onchange="updateSelectedTopicoNumero('manual')"><option value="">Geral</option></select><div id="manualTopicoNumero" style="margin-top:6px;font-size:0.75rem;color:var(--text-muted);display:none;"></div></div>
                     <div class="form-group"><label class="form-label">Minutos *</label><input type="number" class="form-input" id="manualTempo" placeholder="60" min="1"></div>
                     <div class="revisao-check" style="margin-bottom:8px;">
                         <label class="checkbox-label">
@@ -1502,8 +1502,59 @@ function refreshRegistro() {
     document.getElementById('manualTopico').innerHTML = '<option value="">Geral</option>';
     renderHistorico();
 }
-function updateTimerTopicos() { const did = parseInt(document.getElementById('timerDisciplina').value); const sel = document.getElementById('timerTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
-function updateManualTopicos() { const did = parseInt(document.getElementById('manualDisciplina').value); const sel = document.getElementById('manualTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
+function updateTimerTopicos() {
+    const did = parseInt(document.getElementById('timerDisciplina').value);
+    const sel = document.getElementById('timerTopico');
+    sel.innerHTML = '<option value="">Geral</option>';
+
+    const d = state.disciplinas.find(x => x.id === did);
+    if (d) {
+        d.topicos.forEach((t, idx) => {
+            sel.innerHTML += '<option value="' + t.id + '" data-num="' + (idx + 1) + '">' + (idx + 1) + '. ' + t.nome + '</option>';
+        });
+    }
+
+    // Reset indicador do número ao trocar disciplina
+    sel.value = '';
+    updateSelectedTopicoNumero('timer');
+}
+function updateManualTopicos() {
+    const did = parseInt(document.getElementById('manualDisciplina').value);
+    const sel = document.getElementById('manualTopico');
+    sel.innerHTML = '<option value="">Geral</option>';
+
+    const d = state.disciplinas.find(x => x.id === did);
+    if (d) {
+        d.topicos.forEach((t, idx) => {
+            sel.innerHTML += '<option value="' + t.id + '" data-num="' + (idx + 1) + '">' + (idx + 1) + '. ' + t.nome + '</option>';
+        });
+    }
+
+    sel.value = '';
+    updateSelectedTopicoNumero('manual');
+}
+
+function updateSelectedTopicoNumero(mode) {
+    const selId = mode === 'manual' ? 'manualTopico' : 'timerTopico';
+    const outId = mode === 'manual' ? 'manualTopicoNumero' : 'timerTopicoNumero';
+
+    const sel = document.getElementById(selId);
+    const out = document.getElementById(outId);
+    if (!sel || !out) return;
+
+    const opt = sel.options[sel.selectedIndex];
+    const num = opt ? opt.getAttribute('data-num') : null;
+
+    if (!sel.value || !num) {
+        out.style.display = 'none';
+        out.textContent = '';
+        return;
+    }
+
+    out.style.display = 'block';
+    out.textContent = 'Nº do tópico na disciplina: ' + num;
+}
+
 
 
 
