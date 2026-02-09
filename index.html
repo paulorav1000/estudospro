@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EstudosPRO - TJPR 2025</title>
+    <title>EstudosPRO</title>
     <style>
         :root { --bg-primary: #0a0f1c; --bg-secondary: #111827; --bg-card: #1a2235; --accent: #6366f1; --success: #10b981; --warning: #f59e0b; --danger: #ef4444; --cyan: #06b6d4; --text: #f1f5f9; --text-sec: #94a3b8; --text-muted: #64748b; --border: #2d3a52; }
         [data-theme="light"] { --bg-primary: #f1f5f9; --bg-secondary: #ffffff; --bg-card: #ffffff; --text: #1e293b; --text-sec: #475569; --text-muted: #64748b; --border: #e2e8f0; }
@@ -459,7 +459,22 @@
             .mobile-header { display: none; }
             .mobile-overlay { display: none !important; }
         }
-    </style>
+    
+.topic-item.drop-end{border:1px dashed #cbd5e1;background:#f8fafc;}
+
+.pill{display:inline-block;background:#eef2ff;color:#3730a3;padding:2px 8px;border-radius:999px;font-size:12px;}
+
+/* --- Topic tabs (aba por tópico) --- */
+.topic-tabs{display:flex; gap:6px; overflow-x:auto; padding:6px 2px; margin:2px 0 10px 0;}
+.topic-tab{flex:0 0 auto; border:1px solid #d4d4d8; background:#fff; border-radius:999px; padding:6px 10px; font-size:12px; cursor:pointer; white-space:nowrap;}
+.topic-tab.active{background:#111827; color:#fff; border-color:#111827;}
+.topic-tab:focus{outline:2px solid rgba(59,130,246,.5); outline-offset:2px;}
+.topic-panel{border:1px solid #e4e4e7; background:#fff; border-radius:12px; padding:12px;}
+.topic-panel h4{margin:0 0 8px 0; font-size:14px;}
+.topic-panel .actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;}
+.topic-panel .actions button{font-size:12px;}
+
+</style>
 
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1366,7 +1381,41 @@ function refreshAll() {
 }
 
 // ==================== APP ====================
-const STORAGE_KEY = 'estudosPRO';
+const S
+
+// --- UI helpers (não persistem) ---
+const uiState = { activeTopicByDisc: {} };
+
+function getDisciplinaNumero(discId){
+  const idx = state.disciplinas.findIndex(d => d.id == discId);
+  return idx >= 0 ? (idx + 1) : 0;
+}
+
+function setActiveTopicTab(discId, topicoId){
+  uiState.activeTopicByDisc[String(discId)] = topicoId;
+  refreshDisciplinas();
+}
+
+function handleDragAutoScroll(e, container){
+  // Rola tanto o container (lista) quanto a janela ao arrastar próximo das bordas
+  const EDGE = 70;
+  const SPEED = 22;
+
+  try{
+    if(container){
+      const r = container.getBoundingClientRect();
+      const y = e.clientY;
+
+      if(y < r.top + EDGE) container.scrollTop -= SPEED;
+      else if(y > r.bottom - EDGE) container.scrollTop += SPEED;
+    }
+
+    const yv = e.clientY;
+    if(yv < EDGE) window.scrollBy(0, -SPEED);
+    else if(yv > window.innerHeight - EDGE) window.scrollBy(0, SPEED);
+  }catch(_){}
+}
+TORAGE_KEY = 'estudosPRO';
 const defaultState = { disciplinas: [], sessoes: [], revisoes: [], questoes: [], metas: { horas: 49, topicos: 10, questoes: 100, dataProva: '2026-02-22' }, intervalos: [1, 3, 7, 14, 30], cicloProgresso: [] };
 let state = loadState();
 let timerInterval = null;
@@ -1469,8 +1518,42 @@ function refreshRegistro() {
     document.getElementById('manualTopico').innerHTML = '<option value="">Geral</option>';
     renderHistorico();
 }
-function updateTimerTopicos() { const did = parseInt(document.getElementById('timerDisciplina').value); const sel = document.getElementById('timerTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
-function updateManualTopicos() { const did = parseInt(document.getElementById('manualDisciplina').value); const sel = document.getElementById('manualTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
+function updateTimerTopicos() {
+    const did = parseInt(document.getElementById('timerDisciplina').value);
+    const sel = document.getElementById('timerTopico');
+    sel.innerHTML = '<option value="">Selecione...</option>';
+
+    const d = state.disciplinas.find(x => x.id === did);
+    if(!d) return;
+
+    const num = getDisciplinaNumero(d.id);
+    const prefix = num ? (num + ' · ') : '';
+
+    (d.topicos || []).forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = prefix + t.nome;
+        sel.appendChild(opt);
+    });
+}
+function updateManualTopicos() {
+    const discId = parseInt(document.getElementById('manualDisciplina').value);
+    const sel = document.getElementById('manualTopico');
+    sel.innerHTML = '<option value="">Selecione...</option>';
+
+    const d = state.disciplinas.find(x => x.id === discId);
+    if(!d) return;
+
+    const num = getDisciplinaNumero(d.id);
+    const prefix = num ? (num + ' · ') : '';
+
+    (d.topicos || []).forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = prefix + t.nome;
+        sel.appendChild(opt);
+    });
+}
 
 
 
@@ -2158,59 +2241,175 @@ function deleteSessao(id) {
 
 // DISCIPLINAS - CORRIGIDO
 function refreshDisciplinas() {
-    const c = document.getElementById('listaDisciplinas');
-    if(!state.disciplinas.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">📚</div><div>Nenhuma disciplina cadastrada.</div></div>'; return; }
-    c.innerHTML = state.disciplinas.map(d => {
-        const total = d.topicos.length;
-        const done = d.topicos.filter(t => t.status !== 'not-studied').length;
-        const pct = total > 0 ? Math.round((done/total)*100) : 0;
-        const topicsHtml = d.topicos.map((t, idx) => 
-            `<div class="topic-item" draggable="true" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}"
-                ondragstart="onDragStart(event, ${d.id}, ${idx})"
-                ondragover="onDragOver(event)"
-                ondrop="onDrop(event, ${d.id}, ${idx})"
-                ondragend="onDragEnd(event)">
-                <div class="topic-drag-handle" title="Arraste para reordenar">⠿</div>
-                <div class="topic-num">${idx + 1}.</div>
-                <div class="topic-name" onclick="event.stopPropagation(); editarNomeTopico(${d.id},${t.id})" title="Clique para editar">${t.nome}${getTopicAcertosHtml(t.id)}</div>
-                <button class="topic-note-btn ${t.anotacao ? 'has-note' : ''}" onclick="event.stopPropagation(); abrirAnotacao(${d.id},${t.id})" title="${t.anotacao ? 'Ver anotação' : 'Adicionar anotação'}">📝</button>
-                <div class="topic-status">
-                    <button class="status-btn s1 ${t.status==='not-studied'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'not-studied',this)" title="Não estudado">—</button>
-                    <button class="status-btn s2 ${t.status==='studied'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'studied',this)" title="Estudado">E</button>
-                    <button class="status-btn s3 ${t.status==='revised'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'revised',this)" title="Revisado">R</button>
-                    <button class="status-btn s4 ${t.status==='mastered'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'mastered',this)" title="Dominado">✓</button>
-                </div>
-                <button class="topic-delete" onclick="event.stopPropagation(); deleteTopic(${d.id},${t.id})">×</button>
-            </div>`
-        ).join('');
-        
-        return `<div class="accordion" id="acc-${d.id}">
-            <div class="accordion-header" onclick="toggleAcc(${d.id})">
-                <div class="accordion-title">📘 ${d.nome}</div>
-                <div style="display:flex;align-items:center;gap:12px">
-                    <span class="accordion-meta">${total} tópicos • ${pesoToText(d.peso)} • ${pct}%</span>
-                    <span class="accordion-arrow">▼</span>
-                </div>
+    const wrap = document.getElementById('listaDisciplinas');
+    if(!wrap) return;
+
+    // Render
+    wrap.innerHTML = '';
+    const disciplinas = state.disciplinas || [];
+
+    if(disciplinas.length === 0){
+        wrap.innerHTML = '<div class="empty">Nenhuma disciplina cadastrada.</div>';
+        return;
+    }
+
+    disciplinas.forEach((d) => {
+        const discNum = getDisciplinaNumero(d.id);
+        const active = uiState.activeTopicByDisc[String(d.id)] ?? 'list';
+
+        const card = document.createElement('div');
+        card.className = 'accordion';
+
+        const header = document.createElement('div');
+        header.className = 'accordion-header';
+        header.innerHTML = `
+            <div class="flex items-center gap-8">
+              <span class="pill">#${discNum || ''}</span>
+              <strong>${d.nome}</strong>
             </div>
-            <div class="accordion-body">
-                <div class="accordion-content">
-                    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-                        <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openEditDisc(${d.id})">✏️ Editar</button>
-                        <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openAddTopic(${d.id})">+ Tópico</button>
-                        <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); abrirLinks(${d.id})">🔗 Links</button>
-                        <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteDisc(${d.id})">🗑️</button>
-                    </div>
-                    <div class="status-legend">
-                        <span><div class="status-dot s1"></div> Não estudado</span>
-                        <span><div class="status-dot s2"></div> Estudado</span>
-                        <span><div class="status-dot s3"></div> Revisado</span>
-                        <span><div class="status-dot s4"></div> Dominado</span>
-                    </div>
-                    ${topicsHtml}
-                </div>
+            <div class="flex gap-8">
+              <button class="btn btn-sm" onclick="openDisciplinaEditor(${d.id})">Editar</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteDisciplina(${d.id})">Excluir</button>
+              <button class="btn btn-sm" onclick="toggleAcc(${d.id})">Abrir/Fechar</button>
             </div>
-        </div>`;
-    }).join('');
+        `;
+        card.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'accordion-body';
+        body.dataset.discId = d.id;
+        body.style.display = 'none';
+
+        // Tabs (Lista + uma aba por tópico)
+        const tabs = document.createElement('div');
+        tabs.className = 'topic-tabs';
+
+        const tabList = document.createElement('button');
+        tabList.className = 'topic-tab' + (active === 'list' ? ' active' : '');
+        tabList.type = 'button';
+        tabList.textContent = 'Lista';
+        tabList.onclick = () => setActiveTopicTab(d.id, 'list');
+        tabs.appendChild(tabList);
+
+        (d.topicos || []).forEach(t => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'topic-tab' + (String(active) === String(t.id) ? ' active' : '');
+            b.textContent = t.nome;
+            b.onclick = () => setActiveTopicTab(d.id, t.id);
+            tabs.appendChild(b);
+        });
+
+        body.appendChild(tabs);
+
+        // Conteúdo
+        const content = document.createElement('div');
+
+        if(active === 'list'){
+            // Lista com drag & drop (reordenar)
+            const ul = document.createElement('ul');
+            ul.className = 'topic-list';
+
+            // auto-rolagem ao arrastar
+            ul.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                handleDragAutoScroll(e, body);
+            });
+
+            (d.topicos || []).forEach((t, idx) => {
+                const li = document.createElement('li');
+                li.className = 'topic-item';
+                li.draggable = true;
+                li.ondragstart = (e) => onDragStart(e, d.id, idx);
+                li.ondragover = (e) => { onDragOver(e); handleDragAutoScroll(e, body); };
+                li.ondragleave = (e) => onDragLeave(e);
+                li.ondrop = (e) => onDrop(e, d.id, idx);
+
+                li.innerHTML = `
+                    <div class="topic-row">
+                      <div class="topic-main">
+                        <span class="drag-handle" title="Arraste para reordenar">⋮⋮</span>
+                        <span class="topic-name ${t.concluido ? 'done' : ''}">${t.nome}</span>
+                        ${getTopicAcertosHtml(t)}
+                      </div>
+                      <div class="topic-actions">
+                        <button class="btn btn-xs" onclick="setTopicStatus(${d.id}, ${t.id}, ${t.concluido ? 'false' : 'true'})">${t.concluido ? 'Reabrir' : 'Concluir'}</button>
+                        <button class="btn btn-xs" onclick="openTopicEditor(${d.id}, ${t.id})">Editar</button>
+                        <button class="btn btn-xs" onclick="openTopicNote(${d.id}, ${t.id})">Anotações</button>
+                        <button class="btn btn-xs btn-danger" onclick="deleteTopic(${d.id}, ${t.id})">Excluir</button>
+                      </div>
+                    </div>
+                `;
+                ul.appendChild(li);
+            });
+
+            // Área de drop no final (mover para o fim)
+            const endDrop = document.createElement('li');
+            endDrop.className = 'topic-item drop-end';
+            endDrop.ondragover = (e) => { e.preventDefault(); handleDragAutoScroll(e, body); };
+            endDrop.ondrop = (e) => onDrop(e, d.id, (d.topicos || []).length);
+            endDrop.innerHTML = `<div class="topic-row"><div class="topic-main" style="opacity:.7">Solte aqui para mover para o final</div></div>`;
+            ul.appendChild(endDrop);
+
+            content.appendChild(ul);
+
+            // ações da disciplina
+            const actions = document.createElement('div');
+            actions.className = 'mt-12 flex gap-8 flex-wrap';
+            actions.innerHTML = `
+                <button class="btn btn-sm" onclick="openAddTopico(${d.id})">Novo Tópico</button>
+                <button class="btn btn-sm" onclick="abrirImportarTopicos(${d.id})">Adicionar em lote</button>
+            `;
+            content.appendChild(actions);
+
+        } else {
+            const t = (d.topicos || []).find(x => String(x.id) === String(active));
+            if(!t){
+                // fallback
+                uiState.activeTopicByDisc[String(d.id)] = 'list';
+                refreshDisciplinas();
+                return;
+            }
+
+            const panel = document.createElement('div');
+            panel.className = 'topic-panel';
+            panel.innerHTML = `
+                <h4>${t.nome}</h4>
+                <div class="text-sm" style="opacity:.75">Disciplina #${discNum || ''} · ${d.nome}</div>
+                <div class="mt-12">${getTopicAcertosHtml(t)}</div>
+
+                <div class="actions">
+                    <button class="btn btn-sm" onclick="setTopicStatus(${d.id}, ${t.id}, ${t.concluido ? 'false' : 'true'})">${t.concluido ? 'Reabrir' : 'Concluir'}</button>
+                    <button class="btn btn-sm" onclick="openTopicEditor(${d.id}, ${t.id})">Editar</button>
+                    <button class="btn btn-sm" onclick="openTopicNote(${d.id}, ${t.id})">Anotações</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteTopic(${d.id}, ${t.id})">Excluir</button>
+                </div>
+
+                <div class="mt-12">
+                    <button class="btn btn-sm" onclick="setActiveTopicTab(${d.id}, 'list')">Voltar para a lista</button>
+                </div>
+            `;
+            content.appendChild(panel);
+
+            const actions = document.createElement('div');
+            actions.className = 'mt-12 flex gap-8 flex-wrap';
+            actions.innerHTML = `
+                <button class="btn btn-sm" onclick="openAddTopico(${d.id})">Novo Tópico</button>
+                <button class="btn btn-sm" onclick="abrirImportarTopicos(${d.id})">Adicionar em lote</button>
+            `;
+            content.appendChild(actions);
+        }
+
+        body.appendChild(content);
+
+        // drag area - auto scroll window as well
+        body.addEventListener('dragover', (e) => { e.preventDefault(); handleDragAutoScroll(e, body); });
+
+        card.appendChild(body);
+        wrap.appendChild(card);
+    });
+
+    // restaurar estado aberto/fechado já é tratado por toggleAcc + refreshDisciplinasPreserveState
 }
 
 function toggleAcc(id) { document.getElementById('acc-'+id).classList.toggle('open'); }
