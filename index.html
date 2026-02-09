@@ -1190,21 +1190,54 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+
+// Se o login cair no fluxo de redirect (ex.: popup bloqueado), tratar o retorno aqui
+auth.getRedirectResult()
+    .then((result) => {
+        if(result && result.user) {
+            console.log('Redirect login OK:', result.user.email);
+        }
+    })
+    .catch((error) => {
+        if(error) {
+            console.error('Erro redirect:', error);
+            if(error.code === 'auth/unauthorized-domain') {
+                showToast('Domínio não autorizado no Firebase. Adicione: estudospro.vercel.app (Authentication > Settings > Authorized domains).', 'error');
+            } else {
+                showToast('Erro ao finalizar login: ' + (error?.message || 'Tente novamente.'), 'error');
+            }
+        }
+    });
+
 let currentUser = null;
 let syncTimeout = null;
 
-// Login com Google
+// Login com Google (robusto: popup + fallback redirect)
 function loginComGoogle() {
     const provider = new firebase.auth.GoogleAuthProvider();
+
     auth.signInWithPopup(provider)
         .then((result) => {
-            console.log('Login OK:', result.user.email);
+            if(result && result.user) console.log('Login OK:', result.user.email);
         })
         .catch((error) => {
             console.error('Erro login:', error);
-            showToast('Erro ao fazer login: ' + error.message, 'error');
+
+            // Domínio não autorizado no Firebase
+            if(error && error.code === 'auth/unauthorized-domain') {
+                showToast('Domínio não autorizado no Firebase. Abra Firebase > Authentication > Settings > Authorized domains e adicione: estudospro.vercel.app', 'error');
+                return;
+            }
+
+            // Popup bloqueado/fechado -> tentar redirect
+            if(error && (error.code === 'auth/popup-blocked' || error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request')) {
+                return auth.signInWithRedirect(provider);
+            }
+
+            showToast('Erro ao fazer login: ' + (error?.message || 'Tente novamente.'), 'error');
         });
 }
+
 
 // Logout
 function logout() {
