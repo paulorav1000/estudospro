@@ -1503,8 +1503,30 @@ function refreshRegistro() {
     document.getElementById('manualTopico').innerHTML = '<option value="">Geral</option>';
     renderHistorico();
 }
-function updateTimerTopicos() { const did = parseInt(document.getElementById('timerDisciplina').value); const sel = document.getElementById('timerTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
-function updateManualTopicos() { const did = parseInt(document.getElementById('manualDisciplina').value); const sel = document.getElementById('manualTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
+function updateTimerTopicos() {
+    const did = parseInt(document.getElementById('timerDisciplina').value);
+    const sel = document.getElementById('timerTopico');
+    sel.innerHTML = '<option value="">Geral</option>';
+
+    const d = state.disciplinas.find(x => x.id === did);
+    if(d && Array.isArray(d.topicos)) {
+        d.topicos.forEach((t, idx) => {
+            sel.innerHTML += `<option value="${t.id}">${idx+1}. ${t.nome}</option>`;
+        });
+    }
+}
+function updateManualTopicos() {
+    const did = parseInt(document.getElementById('manualDisciplina').value);
+    const sel = document.getElementById('manualTopico');
+    sel.innerHTML = '<option value="">Geral</option>';
+
+    const d = state.disciplinas.find(x => x.id === did);
+    if(d && Array.isArray(d.topicos)) {
+        d.topicos.forEach((t, idx) => {
+            sel.innerHTML += `<option value="${t.id}">${idx+1}. ${t.nome}</option>`;
+        });
+    }
+}
 
 
 
@@ -2161,9 +2183,14 @@ function renderHistorico() {
         sessoes.forEach(s => {
             const d = state.disciplinas.find(x => x.id === s.disciplinaId);
             const t = d?.topicos.find(x => x.id === s.topicoId);
-            html += '<div class="session-item">';
+                        let topicLabel = 'Geral';
+            if(t && d && Array.isArray(d.topicos)) {
+                const idx = d.topicos.findIndex(x => x.id === t.id);
+                topicLabel = (idx >= 0 ? (idx + 1) + '. ' : '') + t.nome;
+            }
+html += '<div class="session-item">';
             html += '<div class="session-time">' + formatMins(s.minutos) + '</div>';
-            html += '<div class="session-info"><div class="session-subject">' + (d?.nome||'?') + '</div><div class="session-topic">' + (t?.nome||'Geral') + '</div></div>';
+            html += '<div class="session-info"><div class="session-subject">' + (d?.nome||'?') + '</div><div class="session-topic">' + topicLabel + '</div></div>';
             html += '<div class="session-actions"><button class="session-edit" onclick="event.stopPropagation(); editarSessao(' + s.id + ')" title="Editar">✏️</button><button class="session-delete" onclick="event.stopPropagation(); deleteSessao(' + s.id + ')" title="Excluir">🗑️</button></div>';
             html += '</div>';
         });
@@ -2211,12 +2238,12 @@ function updateEditSessaoTopicos(selectedTopicoId = null) {
     const discId = parseInt(document.getElementById('editSessaoDisciplina').value);
     const selectTop = document.getElementById('editSessaoTopico');
     selectTop.innerHTML = '<option value="">Geral</option>';
-    
+
     if(discId) {
         const disc = state.disciplinas.find(d => d.id === discId);
-        if(disc) {
-            selectTop.innerHTML += disc.topicos.map(t => 
-                `<option value="${t.id}" ${t.id === selectedTopicoId ? 'selected' : ''}>${t.nome}</option>`
+        if(disc && Array.isArray(disc.topicos)) {
+            selectTop.innerHTML += disc.topicos.map((t, idx) =>
+                `<option value="${t.id}" ${t.id === selectedTopicoId ? 'selected' : ''}>${idx+1}. ${t.nome}</option>`
             ).join('');
         }
     }
