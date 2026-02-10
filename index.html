@@ -1510,44 +1510,6 @@ function updateManualTopicos() { const did = parseInt(document.getElementById('m
 // REORDENAR TÓPICOS - Drag and Drop
 let dragData = null;
 
-// Auto-scroll durante drag (quando encosta no topo/rodapé da tela)
-let dragScrollRAF = null;
-let dragScrollDir = 0;
-
-function updateDragAutoScroll(clientY) {
-    const margin = 80;     // distância do topo/rodapé que ativa scroll
-    const speed  = 18;     // velocidade (px por frame)
-
-    const h = window.innerHeight;
-
-    if (clientY < margin) dragScrollDir = -1;
-    else if (clientY > h - margin) dragScrollDir = 1;
-    else dragScrollDir = 0;
-
-    if (dragScrollDir !== 0 && !dragScrollRAF) {
-        const step = () => {
-            if (dragScrollDir === 0) { dragScrollRAF = null; return; }
-            window.scrollBy(0, dragScrollDir * speed);
-            dragScrollRAF = requestAnimationFrame(step);
-        };
-        dragScrollRAF = requestAnimationFrame(step);
-    }
-
-    if (dragScrollDir === 0 && dragScrollRAF) {
-        cancelAnimationFrame(dragScrollRAF);
-        dragScrollRAF = null;
-    }
-}
-
-function stopDragAutoScroll() {
-    dragScrollDir = 0;
-    if (dragScrollRAF) {
-        cancelAnimationFrame(dragScrollRAF);
-        dragScrollRAF = null;
-    }
-}
-
-
 function onDragStart(e, discId, index) {
     dragData = { discId, index };
     e.target.classList.add('dragging');
@@ -1557,10 +1519,6 @@ function onDragStart(e, discId, index) {
 function onDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-
-    // ✅ auto-scroll da página durante o arraste
-    updateDragAutoScroll(e.clientY);
-
     const item = e.target.closest('.topic-item');
     if(item && !item.classList.contains('dragging')) {
         // Remover classe de todos
@@ -1600,9 +1558,6 @@ function onDragEnd(e) {
     e.target.classList.remove('dragging');
     document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
     dragData = null;
-
-    // ✅ para o auto-scroll
-    stopDragAutoScroll();
 }
 
 function refreshDisciplinasPreserveState(openDiscId, scrollTop) {
