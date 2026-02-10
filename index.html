@@ -109,13 +109,10 @@
         .accordion-arrow { transition: transform 0.3s; }
         .accordion.open .accordion-arrow { transform: rotate(180deg); }
         .accordion-body { max-height: 0; overflow: hidden; transition: max-height 0.4s ease-out; }
-        .accordion.open .accordion-body { max-height: 2000px; overflow-y: auto; overflow-x: hidden; }
+        .accordion.open .accordion-body { max-height: 2000px; overflow-y: auto; }
         .accordion-content { padding: 16px; border-top: 1px solid var(--border); }
-        .topics-scroll { overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
-        .topics-scroll::-webkit-scrollbar { height: 8px; }
-        .topics-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
         /* TOPIC ITEM */
-        .topic-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-card); border-radius: 8px; margin-bottom: 6px; min-width: 620px; }
+        .topic-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-card); border-radius: 8px; margin-bottom: 6px; }
         .topic-num { font-size: 0.8rem; color: var(--text-muted); min-width: 28px; font-weight: 600; }
         .topic-name { flex: 1; font-size: 0.85rem; }
         .topic-status { display: flex; gap: 6px; }
@@ -290,8 +287,6 @@
         .topic-note-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; opacity: 0.4; transition: all 0.2s; padding: 4px; }
         .topic-note-btn:hover { opacity: 1; }
         .topic-note-btn.has-note { opacity: 1; background: rgba(99, 102, 241, 0.15); border-radius: 4px; }
-        .topic-move-btn { background: none; border: none; cursor: pointer; font-size: 0.9rem; opacity: 0.6; transition: all 0.2s; padding: 4px; border-radius: 4px; }
-        .topic-move-btn:hover { opacity: 1; background: rgba(99, 102, 241, 0.15); }
         .links-list { max-height: 300px; overflow-y: auto; }
         .link-item { display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--bg-primary); border-radius: 8px; margin-bottom: 8px; }
         .link-item a { flex: 1; color: var(--cyan); text-decoration: none; font-size: 0.85rem; word-break: break-all; }
@@ -306,7 +301,6 @@
         .topic-drag-handle:hover { color: var(--accent); }
         .topic-item[draggable="true"]:active .topic-drag-handle { cursor: grabbing; }
         .topic-item.dragging { opacity: 0.4; background: var(--accent); }
-        .topic-item.selected { outline: 2px solid var(--accent); background: rgba(99, 102, 241, 0.15); }
         .topic-item.drag-over { border-top: 3px solid var(--accent); margin-top: -3px; }
         .topic-name { cursor: pointer; transition: color 0.2s; }
         .topic-name:hover { color: var(--accent); text-decoration: underline; }
@@ -1513,348 +1507,118 @@ function updateManualTopicos() { const did = parseInt(document.getElementById('m
 
 
 
-// REORDENAR TÓPICOS - Drag and Drop (Custom: suporta multi-seleção + scroll wheel)
-let selectedDiscId = null;
-let selectedTopIds = new Set();
-let lastSelectIndex = null;
+// REORDENAR TÓPICOS - Drag and Drop
+let dragData = null;
 
-function applyTopicSelectionDOM(discId) {
-    document.querySelectorAll('.topic-item.selected').forEach(el => el.classList.remove('selected'));
-    if(selectedDiscId === null || discId !== selectedDiscId) return;
-    document.querySelectorAll(`.topic-item[data-disc-id="${discId}"]`).forEach(el => {
-        const topId = parseFloat(el.dataset.topId);
-        if(selectedTopIds.has(topId)) el.classList.add('selected');
-    });
-}
-
-function clearTopicSelection() {
-    selectedDiscId = null;
-    selectedTopIds = new Set();
-    lastSelectIndex = null;
-    document.querySelectorAll('.topic-item.selected').forEach(el => el.classList.remove('selected'));
-}
-
-function onTopicItemClick(e, discId, index) {
-    // Evitar selecionar ao clicar em botões/inputs dentro do item
-    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-    if(['button','input','select','textarea','a','svg','path'].includes(tag)) return;
-
-    const el = e.currentTarget;
-    const topId = parseFloat(el.dataset.topId);
-
-    // Se clicou em outra disciplina, limpa seleção anterior
-    if(selectedDiscId !== discId) {
-        selectedDiscId = discId;
-        selectedTopIds = new Set();
-        lastSelectIndex = null;
-    }
-
-    const isToggle = e.ctrlKey || e.metaKey;
-    const isRange = e.shiftKey;
-
-    if(isRange && lastSelectIndex !== null) {
-        // Selecionar intervalo
-        const items = Array.from(document.querySelectorAll(`.topic-item[data-disc-id="${discId}"]`))
-            .sort((a,b)=>parseInt(a.dataset.index)-parseInt(b.dataset.index));
-        const start = Math.min(lastSelectIndex, index);
-        const end = Math.max(lastSelectIndex, index);
-        for(let i=start;i<=end;i++){
-            const node = items[i];
-            if(node) selectedTopIds.add(parseFloat(node.dataset.topId));
-        }
-    } else if(isToggle) {
-        // Alternar item
-        if(selectedTopIds.has(topId)) selectedTopIds.delete(topId);
-        else selectedTopIds.add(topId);
-        lastSelectIndex = index;
-    } else {
-        // Seleção simples
-        selectedTopIds = new Set([topId]);
-        lastSelectIndex = index;
-    }
-
-    // Se ficou vazio, limpa tudo
-    if(selectedTopIds.size === 0) {
-        clearTopicSelection();
-        return;
-    }
-
-    applyTopicSelectionDOM(discId);
-}
-
-let dragAutoScrollRAF = null;
-let dragAutoScrollDir = 0;
-
-const topicGroupDrag = {
-    active: false,
-    discId: null,
-    indices: [],
-    targetIndex: null
-};
+// Auto-scroll durante drag (quando encosta no topo/rodapé da tela)
+let dragScrollRAF = null;
+let dragScrollDir = 0;
 
 function updateDragAutoScroll(clientY) {
-    if(!topicGroupDrag.active) return;
+    const margin = 80;     // distância do topo/rodapé que ativa scroll
+    const speed  = 18;     // velocidade (px por frame)
 
-    const margin = 80;   // px: região perto do topo/rodapé
-    const speed  = 18;   // px por frame (ajuste fino)
     const h = window.innerHeight;
 
-    if (clientY < margin) dragAutoScrollDir = -1;
-    else if (clientY > h - margin) dragAutoScrollDir = 1;
-    else dragAutoScrollDir = 0;
+    if (clientY < margin) dragScrollDir = -1;
+    else if (clientY > h - margin) dragScrollDir = 1;
+    else dragScrollDir = 0;
 
-    if (dragAutoScrollDir !== 0 && !dragAutoScrollRAF) {
+    if (dragScrollDir !== 0 && !dragScrollRAF) {
         const step = () => {
-            if (!topicGroupDrag.active || dragAutoScrollDir === 0) { dragAutoScrollRAF = null; return; }
-            window.scrollBy(0, dragAutoScrollDir * speed);
-            dragAutoScrollRAF = requestAnimationFrame(step);
+            if (dragScrollDir === 0) { dragScrollRAF = null; return; }
+            window.scrollBy(0, dragScrollDir * speed);
+            dragScrollRAF = requestAnimationFrame(step);
         };
-        dragAutoScrollRAF = requestAnimationFrame(step);
+        dragScrollRAF = requestAnimationFrame(step);
     }
 
-    if (dragAutoScrollDir === 0 && dragAutoScrollRAF) {
-        cancelAnimationFrame(dragAutoScrollRAF);
-        dragAutoScrollRAF = null;
+    if (dragScrollDir === 0 && dragScrollRAF) {
+        cancelAnimationFrame(dragScrollRAF);
+        dragScrollRAF = null;
     }
 }
 
 function stopDragAutoScroll() {
-    dragAutoScrollDir = 0;
-    if (dragAutoScrollRAF) {
-        cancelAnimationFrame(dragAutoScrollRAF);
-        dragAutoScrollRAF = null;
+    dragScrollDir = 0;
+    if (dragScrollRAF) {
+        cancelAnimationFrame(dragScrollRAF);
+        dragScrollRAF = null;
     }
 }
 
-function getSelectedIndicesInDisc(discId) {
-    const items = Array.from(document.querySelectorAll('.topic-item[data-disc-id="'+discId+'"].selected'));
-    return items.map(el => parseInt(el.dataset.index, 10)).filter(n => !isNaN(n)).sort((a,b)=>a-b);
+
+function onDragStart(e, discId, index) {
+    dragData = { discId, index };
+    e.target.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
 }
 
-// Pending drag (para permitir clique selecionar e só iniciar drag quando mover)
-let topicGroupDragPending = { active:false, discId:null, index:null, startX:0, startY:0, topicEl:null };
-
-function isInteractiveDragTarget(target){
-    if(!target) return false;
-    const tag = target.tagName ? target.tagName.toLowerCase() : '';
-    if(['button','input','select','textarea','a','svg','path','label'].includes(tag)) return true;
-    // elementos específicos do tópico
-    if(target.closest && target.closest('.topic-status, .topic-delete, .topic-note-btn')) return true;
-    // IMPORTANTE: permitir drag a partir do nome também.
-    // O clique simples continua funcionando porque o drag só inicia após mover alguns pixels (limiar).
-    return false;
-}
-
-function queueTopicGroupDrag(e, discId, index){
-    if(e.button !== 0) return;
-    // não iniciar drag se veio de botão/controle interno
-    if(isInteractiveDragTarget(e.target)) return;
-
-    // Registrar intenção: só vira drag se mover um pouco
-    topicGroupDragPending.active = true;
-    topicGroupDragPending.discId = discId;
-    topicGroupDragPending.index = index;
-    topicGroupDragPending.startX = e.clientX;
-    topicGroupDragPending.startY = e.clientY;
-    topicGroupDragPending.topicEl = e.currentTarget && e.currentTarget.classList && e.currentTarget.classList.contains('topic-item')
-        ? e.currentTarget
-        : (e.target.closest ? e.target.closest('.topic-item') : null);
-
-    document.addEventListener('mousemove', onTopicGroupDragPendingMove, { passive:false });
-    document.addEventListener('mouseup', onTopicGroupDragPendingUp, { passive:false });
-}
-
-function onTopicGroupDragPendingMove(e){
-    if(!topicGroupDragPending.active) return;
-
-    const dx = e.clientX - topicGroupDragPending.startX;
-    const dy = e.clientY - topicGroupDragPending.startY;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-
-    // limiar para diferenciar clique x arraste
-    if(dist < 6) return;
-
-    // virou drag: bloquear seleção de texto e iniciar drag custom
+function onDragOver(e) {
     e.preventDefault();
-    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
 
-    const { discId, index, topicEl } = topicGroupDragPending;
-    cleanupPendingTopicDrag();
-    startTopicGroupDragCore(discId, index, topicEl);
-}
-
-function onTopicGroupDragPendingUp(){
-    cleanupPendingTopicDrag();
-}
-
-function cleanupPendingTopicDrag(){
-    topicGroupDragPending.active = false;
-    topicGroupDragPending.discId = null;
-    topicGroupDragPending.index = null;
-    topicGroupDragPending.topicEl = null;
-    document.removeEventListener('mousemove', onTopicGroupDragPendingMove);
-    document.removeEventListener('mouseup', onTopicGroupDragPendingUp);
-}
-
-// Drag iniciado pelo "handle" (começa imediatamente)
-function startTopicGroupDrag(e, discId, index) {
-    if(e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const topicEl = e.target.closest('.topic-item');
-    startTopicGroupDragCore(discId, index, topicEl);
-}
-
-// Núcleo do drag (usado pelo handle e pelo drag via item)
-function startTopicGroupDragCore(discId, index, topicEl) {
-    // Se o item não estiver selecionado, seleciona só ele (mantém comportamento esperado)
-    const topId = topicEl ? parseFloat(topicEl.dataset.topId) : null;
-
-    if(selectedDiscId !== discId || !selectedTopIds || !(topId && selectedTopIds.has(topId))) {
-        selectedDiscId = discId;
-        selectedTopIds = new Set();
-        if(topId) selectedTopIds.add(topId);
-        lastSelectIndex = index;
-
-        // Atualizar seleção visual sem re-renderizar tudo
-        document.querySelectorAll('.topic-item.selected').forEach(el => el.classList.remove('selected'));
-        if(topicEl) topicEl.classList.add('selected');
-    }
-
-    const indices = getSelectedIndicesInDisc(discId);
-    if(!indices.length) indices.push(index);
-
-    topicGroupDrag.active = true;
-    topicGroupDrag.discId = discId;
-    topicGroupDrag.indices = indices;
-    topicGroupDrag.targetIndex = null;
-
-    // Marcar itens sendo arrastados (visual)
-    indices.forEach(i => {
-        const el = document.querySelector('.topic-item[data-disc-id="'+discId+'"][data-index="'+i+'"]');
-        if(el) el.classList.add('dragging');
-    });
-
-    // Listeners globais (custom drag) - aqui o scroll wheel funciona normalmente
-    document.addEventListener('mousemove', onTopicGroupDragMove, { passive: false });
-    document.addEventListener('mouseup', onTopicGroupDragEnd, { passive: false });
-    document.addEventListener('keydown', onTopicGroupDragKeydown);
-}
-
-
-function onTopicGroupDragMove(e) {
-    if(!topicGroupDrag.active) return;
-
+    // ✅ auto-scroll da página durante o arraste
     updateDragAutoScroll(e.clientY);
 
-    // Atualizar alvo de drop
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const item = el ? el.closest('.topic-item') : null;
-
-    document.querySelectorAll('.topic-item.drag-over').forEach(x => x.classList.remove('drag-over'));
-
-    if(item && item.dataset && item.dataset.discId == topicGroupDrag.discId) {
-        const idx = parseInt(item.dataset.index, 10);
-        if(!isNaN(idx)) {
-            topicGroupDrag.targetIndex = idx;
-            item.classList.add('drag-over');
-        }
+    const item = e.target.closest('.topic-item');
+    if(item && !item.classList.contains('dragging')) {
+        // Remover classe de todos
+        document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+        item.classList.add('drag-over');
     }
 }
 
-function onTopicGroupDragKeydown(e) {
-    if(e.key === 'Escape') {
-        // cancelar drag
-        cleanupTopicGroupDrag(true);
-    }
-}
-
-function onTopicGroupDragEnd(e) {
-    if(!topicGroupDrag.active) return;
+function onDrop(e, discId, targetIndex) {
     e.preventDefault();
-
-    const discId = topicGroupDrag.discId;
-    const targetIndex = topicGroupDrag.targetIndex;
-    const indices = [...topicGroupDrag.indices].sort((a,b)=>a-b);
-
-    cleanupTopicGroupDrag(false);
-
-    if(targetIndex === null || indices.includes(targetIndex)) return;
-
+    document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+    
+    if(!dragData || dragData.discId !== discId) return;
+    
+    const sourceIndex = dragData.index;
+    if(sourceIndex === targetIndex) return;
+    
     const d = state.disciplinas.find(x => x.id === discId);
     if(!d) return;
-
-    // Guardar scroll do accordion
+    
+    // Guardar posição de scroll
     const accordion = document.getElementById('acc-' + discId);
     const accordionBody = accordion?.querySelector('.accordion-body');
     const scrollTop = accordionBody?.scrollTop || 0;
-
-    // Extrair itens selecionados (do fim pro começo)
-    const moved = [];
-    for(let i = indices.length - 1; i >= 0; i--) {
-        moved.unshift(d.topicos.splice(indices[i], 1)[0]);
-    }
-
-    // Ajustar índice de inserção após remoções
-    const removedBefore = indices.filter(i => i < targetIndex).length;
-    let insertAt = targetIndex - removedBefore;
-    if(insertAt < 0) insertAt = 0;
-    if(insertAt > d.topicos.length) insertAt = d.topicos.length;
-
-    // Inserir mantendo ordem relativa
-    d.topicos.splice(insertAt, 0, ...moved);
-
+    
+    // Mover item
+    const [item] = d.topicos.splice(sourceIndex, 1);
+    d.topicos.splice(targetIndex, 0, item);
+    
     saveState();
+    
+    // Refresh mantendo estado
     refreshDisciplinasPreserveState(discId, scrollTop);
 }
 
-function cleanupTopicGroupDrag(cancelled) {
+function onDragEnd(e) {
+    e.target.classList.remove('dragging');
+    document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+    dragData = null;
+
+    // ✅ para o auto-scroll
     stopDragAutoScroll();
-
-    document.removeEventListener('mousemove', onTopicGroupDragMove, { passive: false });
-    document.removeEventListener('mouseup', onTopicGroupDragEnd, { passive: false });
-    document.removeEventListener('keydown', onTopicGroupDragKeydown);
-
-    document.querySelectorAll('.topic-item.drag-over').forEach(x => x.classList.remove('drag-over'));
-    document.querySelectorAll('.topic-item.dragging').forEach(x => x.classList.remove('dragging'));
-
-    topicGroupDrag.active = false;
-    topicGroupDrag.discId = null;
-    topicGroupDrag.indices = [];
-    topicGroupDrag.targetIndex = null;
 }
 
-function moverTopicoParaPosicao(discId, topId) {
-    const d = state.disciplinas.find(x => x.id === discId);
-    if(!d) return;
-
-    const fromIndex = d.topicos.findIndex(t => t.id === topId);
-    if(fromIndex < 0) return;
-
-    const total = d.topicos.length;
-    const entrada = prompt(`Mover para qual posição? (1 até ${total})`, String(fromIndex + 1));
-    if(entrada === null) return;
-
-    const pos = parseInt(String(entrada).trim(), 10);
-    if(isNaN(pos) || pos < 1 || pos > total) {
-        showToast(`Digite uma posição válida entre 1 e ${total}.`, 'error');
-        return;
+function refreshDisciplinasPreserveState(openDiscId, scrollTop) {
+    refreshDisciplinas();
+    
+    // Reabrir accordion
+    const accordion = document.getElementById('acc-' + openDiscId);
+    if(accordion) {
+        accordion.classList.add('open');
+        
+        // Restaurar scroll após render
+        setTimeout(() => {
+            const body = accordion.querySelector('.accordion-body');
+            if(body) body.scrollTop = scrollTop;
+        }, 10);
     }
-
-    const toIndex = pos - 1;
-    if(toIndex === fromIndex) return;
-
-    const accordion = document.getElementById('acc-' + discId);
-    const accordionBody = accordion?.querySelector('.accordion-body');
-    const scrollTop = accordionBody?.scrollTop || 0;
-
-    const [item] = d.topicos.splice(fromIndex, 1);
-    d.topicos.splice(toIndex, 0, item);
-
-    saveState();
-    refreshDisciplinasPreserveState(discId, scrollTop);
-    showToast(`Tópico movido para a posição ${pos}.`);
 }
 
 // Função para editar nome do tópico
@@ -2479,12 +2243,15 @@ function refreshDisciplinas() {
         const done = d.topicos.filter(t => t.status !== 'not-studied').length;
         const pct = total > 0 ? Math.round((done/total)*100) : 0;
         const topicsHtml = d.topicos.map((t, idx) => 
-            `<div class="topic-item ${selectedDiscId===d.id && selectedTopIds.has(t.id) ? 'selected' : '' }" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}" onclick="onTopicItemClick(event, ${d.id}, ${idx})" onmousedown="queueTopicGroupDrag(event, ${d.id}, ${idx})">
-                <div class="topic-drag-handle" title="Arraste para reordenar" onmousedown="startTopicGroupDrag(event, ${d.id}, ${idx})">⠿</div>
+            `<div class="topic-item" draggable="true" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}"
+                ondragstart="onDragStart(event, ${d.id}, ${idx})"
+                ondragover="onDragOver(event)"
+                ondrop="onDrop(event, ${d.id}, ${idx})"
+                ondragend="onDragEnd(event)">
+                <div class="topic-drag-handle" title="Arraste para reordenar">⠿</div>
                 <div class="topic-num">${idx + 1}.</div>
                 <div class="topic-name" onclick="event.stopPropagation(); editarNomeTopico(${d.id},${t.id})" title="Clique para editar">${t.nome}${getTopicAcertosHtml(t.id)}</div>
                 <button class="topic-note-btn ${t.anotacao ? 'has-note' : ''}" onclick="event.stopPropagation(); abrirAnotacao(${d.id},${t.id})" title="${t.anotacao ? 'Ver anotação' : 'Adicionar anotação'}">📝</button>
-                <button class="topic-move-btn" onclick="event.stopPropagation(); moverTopicoParaPosicao(${d.id},${t.id})" title="Mover para posição">↕️</button>
                 <div class="topic-status">
                     <button class="status-btn s1 ${t.status==='not-studied'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'not-studied',this)" title="Não estudado">—</button>
                     <button class="status-btn s2 ${t.status==='studied'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'studied',this)" title="Estudado">E</button>
@@ -2517,7 +2284,7 @@ function refreshDisciplinas() {
                         <span><div class="status-dot s3"></div> Revisado</span>
                         <span><div class="status-dot s4"></div> Dominado</span>
                     </div>
-                    <div class="topics-scroll">${topicsHtml}</div>
+                    ${topicsHtml}
                 </div>
             </div>
         </div>`;
@@ -4019,27 +3786,7 @@ function limparSessoes() {
     refreshDashboard();
 }
 
-function initTopicHorizontalScroll() {
-    document.addEventListener('wheel', function(e) {
-        const scroller = e.target.closest('.topics-scroll');
-        if(!scroller) return;
-
-        const horizontalIntent = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
-        if(!horizontalIntent) return;
-
-        const delta = e.deltaX || e.deltaY;
-        if(delta === 0) return;
-
-        scroller.scrollLeft += delta;
-        e.preventDefault();
-    }, { passive: false });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    loadTheme();
-    initTopicHorizontalScroll();
-    refreshDashboard();
-});
+document.addEventListener('DOMContentLoaded', () => { loadTheme(); refreshDashboard(); });
 
 // Mobile Menu
 function toggleMobileMenu() {
