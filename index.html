@@ -301,7 +301,6 @@
         .topic-drag-handle:hover { color: var(--accent); }
         .topic-item[draggable="true"]:active .topic-drag-handle { cursor: grabbing; }
         .topic-item.dragging { opacity: 0.4; background: var(--accent); }
-        .topic-item.selected { outline: 2px solid var(--accent); background: rgba(99, 102, 241, 0.15); }
         .topic-item.drag-over { border-top: 3px solid var(--accent); margin-top: -3px; }
         .topic-name { cursor: pointer; transition: color 0.2s; }
         .topic-name:hover { color: var(--accent); text-decoration: underline; }
@@ -594,7 +593,7 @@
                     </div>
                     <div class="timer-display" id="timerDisplay">00:00:00</div>
                     <div class="form-group"><label class="form-label">Disciplina *</label><select class="form-select" id="timerDisciplina" onchange="updateTimerTopicos()"><option value="">Selecione</option></select></div>
-                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="timerTopico"><option value="">Geral</option></select></div>
+                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="timerTopico" onchange="updateSelectedTopicoNumero('timer')"><option value="">Geral</option></select><div id="timerTopicoNumero" style="margin-top:6px;font-size:0.75rem;color:var(--text-muted);display:none;"></div></div>
                     <div class="timer-controls">
                         <button class="btn btn-primary" id="btnStart" onclick="timerStart()">▶️ Iniciar</button>
                         <button class="btn btn-secondary" id="btnPause" onclick="timerPause()" disabled>⏸️ Pausar</button>
@@ -624,7 +623,7 @@
                     <div class="card-header"><div class="card-title">✏️ Manual</div></div>
                     <div class="form-group"><label class="form-label">Data *</label><input type="date" class="form-input" id="manualData"></div>
                     <div class="form-group"><label class="form-label">Disciplina *</label><select class="form-select" id="manualDisciplina" onchange="updateManualTopicos()"><option value="">Selecione</option></select></div>
-                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="manualTopico"><option value="">Geral</option></select></div>
+                    <div class="form-group"><label class="form-label">Tópico</label><select class="form-select" id="manualTopico" onchange="updateSelectedTopicoNumero('manual')"><option value="">Geral</option></select><div id="manualTopicoNumero" style="margin-top:6px;font-size:0.75rem;color:var(--text-muted);display:none;"></div></div>
                     <div class="form-group"><label class="form-label">Minutos *</label><input type="number" class="form-input" id="manualTempo" placeholder="60" min="1"></div>
                     <div class="revisao-check" style="margin-bottom:8px;">
                         <label class="checkbox-label">
@@ -1503,113 +1502,116 @@ function refreshRegistro() {
     document.getElementById('manualTopico').innerHTML = '<option value="">Geral</option>';
     renderHistorico();
 }
-function updateTimerTopicos() { const did = parseInt(document.getElementById('timerDisciplina').value); const sel = document.getElementById('timerTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
-function updateManualTopicos() { const did = parseInt(document.getElementById('manualDisciplina').value); const sel = document.getElementById('manualTopico'); sel.innerHTML = '<option value="">Geral</option>'; const d = state.disciplinas.find(x => x.id === did); if(d) d.topicos.forEach(t => sel.innerHTML += '<option value="'+t.id+'">'+t.nome+'</option>'); }
+function updateTimerTopicos() {
+    const did = parseInt(document.getElementById('timerDisciplina').value);
+    const sel = document.getElementById('timerTopico');
+    sel.innerHTML = '<option value="">Geral</option>';
+
+    const d = state.disciplinas.find(x => x.id === did);
+    if (d) {
+        d.topicos.forEach((t, idx) => {
+            sel.innerHTML += '<option value="' + t.id + '" data-num="' + (idx + 1) + '">' + (idx + 1) + '. ' + t.nome + '</option>';
+        });
+    }
+
+    // Reset indicador do número ao trocar disciplina
+    sel.value = '';
+    updateSelectedTopicoNumero('timer');
+}
+function updateManualTopicos() {
+    const did = parseInt(document.getElementById('manualDisciplina').value);
+    const sel = document.getElementById('manualTopico');
+    sel.innerHTML = '<option value="">Geral</option>';
+
+    const d = state.disciplinas.find(x => x.id === did);
+    if (d) {
+        d.topicos.forEach((t, idx) => {
+            sel.innerHTML += '<option value="' + t.id + '" data-num="' + (idx + 1) + '">' + (idx + 1) + '. ' + t.nome + '</option>';
+        });
+    }
+
+    sel.value = '';
+    updateSelectedTopicoNumero('manual');
+}
+
+function updateSelectedTopicoNumero(mode) {
+    const selId = mode === 'manual' ? 'manualTopico' : 'timerTopico';
+    const outId = mode === 'manual' ? 'manualTopicoNumero' : 'timerTopicoNumero';
+
+    const sel = document.getElementById(selId);
+    const out = document.getElementById(outId);
+    if (!sel || !out) return;
+
+    const opt = sel.options[sel.selectedIndex];
+    const num = opt ? opt.getAttribute('data-num') : null;
+
+    if (!sel.value || !num) {
+        out.style.display = 'none';
+        out.textContent = '';
+        return;
+    }
+
+    out.style.display = 'block';
+    out.textContent = 'Nº do tópico na disciplina: ' + num;
+}
+
 
 
 
 // REORDENAR TÓPICOS - Drag and Drop
 let dragData = null;
 
-// Seleção múltipla de tópicos (Ctrl/Cmd para alternar, Shift para intervalo)
-let selectedDiscId = null;
-let selectedTopIds = new Set();
-let lastSelectIndex = null;
+// Auto-scroll durante drag (quando encosta no topo/rodapé da tela)
+let dragScrollRAF = null;
+let dragScrollDir = 0;
 
-function applyTopicSelectionDOM(discId) {
-    document.querySelectorAll('.topic-item.selected').forEach(el => el.classList.remove('selected'));
-    if(selectedDiscId === null || discId !== selectedDiscId) return;
-    document.querySelectorAll(`.topic-item[data-disc-id="${discId}"]`).forEach(el => {
-        const topId = parseFloat(el.dataset.topId);
-        if(selectedTopIds.has(topId)) el.classList.add('selected');
-    });
-}
+function updateDragAutoScroll(clientY) {
+    const margin = 80;     // distância do topo/rodapé que ativa scroll
+    const speed  = 18;     // velocidade (px por frame)
 
-function clearTopicSelection() {
-    selectedDiscId = null;
-    selectedTopIds = new Set();
-    lastSelectIndex = null;
-    document.querySelectorAll('.topic-item.selected').forEach(el => el.classList.remove('selected'));
-}
+    const h = window.innerHeight;
 
-function onTopicItemClick(e, discId, index) {
-    // Evitar selecionar ao clicar em botões/inputs dentro do item
-    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-    if(['button','input','select','textarea','a','svg','path'].includes(tag)) return;
+    if (clientY < margin) dragScrollDir = -1;
+    else if (clientY > h - margin) dragScrollDir = 1;
+    else dragScrollDir = 0;
 
-    const el = e.currentTarget;
-    const topId = parseFloat(el.dataset.topId);
-
-    // Se clicou em outra disciplina, limpa seleção anterior
-    if(selectedDiscId !== discId) {
-        selectedDiscId = discId;
-        selectedTopIds = new Set();
-        lastSelectIndex = null;
+    if (dragScrollDir !== 0 && !dragScrollRAF) {
+        const step = () => {
+            if (dragScrollDir === 0) { dragScrollRAF = null; return; }
+            window.scrollBy(0, dragScrollDir * speed);
+            dragScrollRAF = requestAnimationFrame(step);
+        };
+        dragScrollRAF = requestAnimationFrame(step);
     }
 
-    const isToggle = e.ctrlKey || e.metaKey;
-    const isRange = e.shiftKey;
-
-    if(isRange && lastSelectIndex !== null) {
-        // Selecionar intervalo
-        const items = Array.from(document.querySelectorAll(`.topic-item[data-disc-id="${discId}"]`))
-            .sort((a,b)=>parseInt(a.dataset.index)-parseInt(b.dataset.index));
-        const start = Math.min(lastSelectIndex, index);
-        const end = Math.max(lastSelectIndex, index);
-        for(let i=start;i<=end;i++){
-            const node = items[i];
-            if(node) selectedTopIds.add(parseFloat(node.dataset.topId));
-        }
-    } else if(isToggle) {
-        // Alternar item
-        if(selectedTopIds.has(topId)) selectedTopIds.delete(topId);
-        else selectedTopIds.add(topId);
-        lastSelectIndex = index;
-    } else {
-        // Seleção simples
-        selectedTopIds = new Set([topId]);
-        lastSelectIndex = index;
+    if (dragScrollDir === 0 && dragScrollRAF) {
+        cancelAnimationFrame(dragScrollRAF);
+        dragScrollRAF = null;
     }
-
-    // Se ficou vazio, limpa tudo
-    if(selectedTopIds.size === 0) {
-        clearTopicSelection();
-        return;
-    }
-
-    applyTopicSelectionDOM(discId);
 }
+
+function stopDragAutoScroll() {
+    dragScrollDir = 0;
+    if (dragScrollRAF) {
+        cancelAnimationFrame(dragScrollRAF);
+        dragScrollRAF = null;
+    }
+}
+
 
 function onDragStart(e, discId, index) {
-    const el = e.currentTarget;
-    const topId = parseFloat(el.dataset.topId);
-
-    // Se o item arrastado não está selecionado, transforma a seleção nele (drag de múltiplos)
-    if(selectedDiscId !== discId || !selectedTopIds.has(topId)) {
-        selectedDiscId = discId;
-        selectedTopIds = new Set([topId]);
-        lastSelectIndex = index;
-        applyTopicSelectionDOM(discId);
-    }
-
-    const d = state.disciplinas.find(x => x.id === discId);
-    if(!d) return;
-
-    const indices = [];
-    d.topicos.forEach((t, i) => {
-        if(selectedTopIds.has(t.id)) indices.push(i);
-    });
-    indices.sort((a,b)=>a-b);
-
-    dragData = { discId, indices, topIds: Array.from(selectedTopIds) };
-
-    el.classList.add('dragging');
+    dragData = { discId, index };
+    e.target.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
 }
 
 function onDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+
+    // ✅ auto-scroll da página durante o arraste
+    updateDragAutoScroll(e.clientY);
+
     const item = e.target.closest('.topic-item');
     if(item && !item.classList.contains('dragging')) {
         // Remover classe de todos
@@ -1621,57 +1623,37 @@ function onDragOver(e) {
 function onDrop(e, discId, targetIndex) {
     e.preventDefault();
     document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
-
+    
     if(!dragData || dragData.discId !== discId) return;
-
+    
+    const sourceIndex = dragData.index;
+    if(sourceIndex === targetIndex) return;
+    
     const d = state.disciplinas.find(x => x.id === discId);
     if(!d) return;
-
-    const indices = (dragData.indices || []).slice().sort((a,b)=>a-b);
-    if(!indices.length) return;
-
-    // Se soltou em cima de um item que faz parte da seleção, não faz nada
-    if(indices.includes(targetIndex)) return;
-
-    // Guardar posição de scroll do accordion
+    
+    // Guardar posição de scroll
     const accordion = document.getElementById('acc-' + discId);
     const accordionBody = accordion?.querySelector('.accordion-body');
     const scrollTop = accordionBody?.scrollTop || 0;
-
-    // Capturar os itens na ordem original
-    const moving = indices.map(i => d.topicos[i]);
-
-    // Remover de trás para frente
-    for(let i = indices.length - 1; i >= 0; i--) {
-        d.topicos.splice(indices[i], 1);
-    }
-
-    // Ajustar índice de inserção após remoções
-    const removedBefore = indices.filter(i => i < targetIndex).length;
-    let insertIndex = targetIndex - removedBefore;
-    if(insertIndex < 0) insertIndex = 0;
-    if(insertIndex > d.topicos.length) insertIndex = d.topicos.length;
-
-    // Inserir o bloco mantendo a ordem relativa
-    d.topicos.splice(insertIndex, 0, ...moving);
-
-    // Manter seleção nos mesmos tópicos
-    selectedDiscId = discId;
-    selectedTopIds = new Set(dragData.topIds || moving.map(t=>t.id));
-
+    
+    // Mover item
+    const [item] = d.topicos.splice(sourceIndex, 1);
+    d.topicos.splice(targetIndex, 0, item);
+    
     saveState();
-
-    // Refresh mantendo estado/scroll
+    
+    // Refresh mantendo estado
     refreshDisciplinasPreserveState(discId, scrollTop);
 }
 
 function onDragEnd(e) {
-    e.currentTarget.classList.remove('dragging');
+    e.target.classList.remove('dragging');
     document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
     dragData = null;
 
-    // Reaplicar seleção (o refresh pode ter acontecido no drop)
-    if(selectedDiscId !== null) applyTopicSelectionDOM(selectedDiscId);
+    // ✅ para o auto-scroll
+    stopDragAutoScroll();
 }
 
 function refreshDisciplinasPreserveState(openDiscId, scrollTop) {
@@ -2312,7 +2294,7 @@ function refreshDisciplinas() {
         const done = d.topicos.filter(t => t.status !== 'not-studied').length;
         const pct = total > 0 ? Math.round((done/total)*100) : 0;
         const topicsHtml = d.topicos.map((t, idx) => 
-            `<div class="topic-item ${selectedDiscId===d.id && selectedTopIds.has(t.id) ? 'selected' : '' }" draggable="true" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}" onclick="onTopicItemClick(event, ${d.id}, ${idx})"
+            `<div class="topic-item" draggable="true" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}"
                 ondragstart="onDragStart(event, ${d.id}, ${idx})"
                 ondragover="onDragOver(event)"
                 ondrop="onDrop(event, ${d.id}, ${idx})"
