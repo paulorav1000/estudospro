@@ -1626,14 +1626,84 @@ function getSelectedIndicesInDisc(discId) {
     return items.map(el => parseInt(el.dataset.index, 10)).filter(n => !isNaN(n)).sort((a,b)=>a-b);
 }
 
+// Pending drag (para permitir clique selecionar e só iniciar drag quando mover)
+let topicGroupDragPending = { active:false, discId:null, index:null, startX:0, startY:0, topicEl:null };
+
+function isInteractiveDragTarget(target){
+    if(!target) return false;
+    const tag = target.tagName ? target.tagName.toLowerCase() : '';
+    if(['button','input','select','textarea','a','svg','path','label'].includes(tag)) return true;
+    // elementos específicos do tópico
+    if(target.closest && target.closest('.topic-status, .topic-delete, .topic-note-btn')) return true;
+    // se clicou no nome (que edita), não iniciar drag direto
+    if(target.closest && target.closest('.topic-name')) return true;
+    return false;
+}
+
+function queueTopicGroupDrag(e, discId, index){
+    if(e.button !== 0) return;
+    // não iniciar drag se veio de botão/controle interno
+    if(isInteractiveDragTarget(e.target)) return;
+
+    // Registrar intenção: só vira drag se mover um pouco
+    topicGroupDragPending.active = true;
+    topicGroupDragPending.discId = discId;
+    topicGroupDragPending.index = index;
+    topicGroupDragPending.startX = e.clientX;
+    topicGroupDragPending.startY = e.clientY;
+    topicGroupDragPending.topicEl = e.currentTarget && e.currentTarget.classList && e.currentTarget.classList.contains('topic-item')
+        ? e.currentTarget
+        : (e.target.closest ? e.target.closest('.topic-item') : null);
+
+    document.addEventListener('mousemove', onTopicGroupDragPendingMove, { passive:false });
+    document.addEventListener('mouseup', onTopicGroupDragPendingUp, { passive:false });
+}
+
+function onTopicGroupDragPendingMove(e){
+    if(!topicGroupDragPending.active) return;
+
+    const dx = e.clientX - topicGroupDragPending.startX;
+    const dy = e.clientY - topicGroupDragPending.startY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    // limiar para diferenciar clique x arraste
+    if(dist < 6) return;
+
+    // virou drag: bloquear seleção de texto e iniciar drag custom
+    e.preventDefault();
+    e.stopPropagation();
+
+    const { discId, index, topicEl } = topicGroupDragPending;
+    cleanupPendingTopicDrag();
+    startTopicGroupDragCore(discId, index, topicEl);
+}
+
+function onTopicGroupDragPendingUp(){
+    cleanupPendingTopicDrag();
+}
+
+function cleanupPendingTopicDrag(){
+    topicGroupDragPending.active = false;
+    topicGroupDragPending.discId = null;
+    topicGroupDragPending.index = null;
+    topicGroupDragPending.topicEl = null;
+    document.removeEventListener('mousemove', onTopicGroupDragPendingMove);
+    document.removeEventListener('mouseup', onTopicGroupDragPendingUp);
+}
+
+// Drag iniciado pelo "handle" (começa imediatamente)
 function startTopicGroupDrag(e, discId, index) {
-    // botão esquerdo
     if(e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
 
-    // Se o item não estiver selecionado, seleciona só ele (mantém comportamento esperado)
     const topicEl = e.target.closest('.topic-item');
+    startTopicGroupDragCore(discId, index, topicEl);
+}
+
+// Núcleo do drag (usado pelo handle e pelo drag via item)
+function startTopicGroupDragCore(discId, index, topicEl) {
+    // Se o item não estiver selecionado, seleciona só ele (mantém comportamento esperado)
     const topId = topicEl ? parseFloat(topicEl.dataset.topId) : null;
 
     if(selectedDiscId !== discId || !selectedTopIds || !(topId && selectedTopIds.has(topId))) {
@@ -1666,6 +1736,7 @@ function startTopicGroupDrag(e, discId, index) {
     document.addEventListener('mouseup', onTopicGroupDragEnd, { passive: false });
     document.addEventListener('keydown', onTopicGroupDragKeydown);
 }
+
 
 function onTopicGroupDragMove(e) {
     if(!topicGroupDrag.active) return;
@@ -2371,7 +2442,7 @@ function refreshDisciplinas() {
         const done = d.topicos.filter(t => t.status !== 'not-studied').length;
         const pct = total > 0 ? Math.round((done/total)*100) : 0;
         const topicsHtml = d.topicos.map((t, idx) => 
-            `<div class="topic-item ${selectedDiscId===d.id && selectedTopIds.has(t.id) ? 'selected' : '' }" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}" onclick="onTopicItemClick(event, ${d.id}, ${idx})">
+            `<div class="topic-item ${selectedDiscId===d.id && selectedTopIds.has(t.id) ? 'selected' : '' }" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}" onclick="onTopicItemClick(event, ${d.id}, ${idx})" onmousedown="queueTopicGroupDrag(event, ${d.id}, ${idx})">
                 <div class="topic-drag-handle" title="Arraste para reordenar" onmousedown="startTopicGroupDrag(event, ${d.id}, ${idx})">⠿</div>
                 <div class="topic-num">${idx + 1}.</div>
                 <div class="topic-name" onclick="event.stopPropagation(); editarNomeTopico(${d.id},${t.id})" title="Clique para editar">${t.nome}${getTopicAcertosHtml(t.id)}</div>
