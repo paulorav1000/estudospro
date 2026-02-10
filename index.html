@@ -1635,8 +1635,8 @@ function isInteractiveDragTarget(target){
     if(['button','input','select','textarea','a','svg','path','label'].includes(tag)) return true;
     // elementos específicos do tópico
     if(target.closest && target.closest('.topic-status, .topic-delete, .topic-note-btn')) return true;
-    // se clicou no nome (que edita), não iniciar drag direto
-    if(target.closest && target.closest('.topic-name')) return true;
+    // IMPORTANTE: permitir drag a partir do nome também.
+    // O clique simples continua funcionando porque o drag só inicia após mover alguns pixels (limiar).
     return false;
 }
 
