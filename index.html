@@ -301,6 +301,7 @@
         .topic-drag-handle:hover { color: var(--accent); }
         .topic-item[draggable="true"]:active .topic-drag-handle { cursor: grabbing; }
         .topic-item.dragging { opacity: 0.4; background: var(--accent); }
+        .topic-item.selected { outline: 2px solid var(--accent); background: rgba(99, 102, 241, 0.15); }
         .topic-item.drag-over { border-top: 3px solid var(--accent); margin-top: -3px; }
         .topic-name { cursor: pointer; transition: color 0.2s; }
         .topic-name:hover { color: var(--accent); text-decoration: underline; }
@@ -1510,9 +1511,99 @@ function updateManualTopicos() { const did = parseInt(document.getElementById('m
 // REORDENAR TÓPICOS - Drag and Drop
 let dragData = null;
 
+// Seleção múltipla de tópicos (Ctrl/Cmd para alternar, Shift para intervalo)
+let selectedDiscId = null;
+let selectedTopIds = new Set();
+let lastSelectIndex = null;
+
+function applyTopicSelectionDOM(discId) {
+    document.querySelectorAll('.topic-item.selected').forEach(el => el.classList.remove('selected'));
+    if(selectedDiscId === null || discId !== selectedDiscId) return;
+    document.querySelectorAll(`.topic-item[data-disc-id="${discId}"]`).forEach(el => {
+        const topId = parseFloat(el.dataset.topId);
+        if(selectedTopIds.has(topId)) el.classList.add('selected');
+    });
+}
+
+function clearTopicSelection() {
+    selectedDiscId = null;
+    selectedTopIds = new Set();
+    lastSelectIndex = null;
+    document.querySelectorAll('.topic-item.selected').forEach(el => el.classList.remove('selected'));
+}
+
+function onTopicItemClick(e, discId, index) {
+    // Evitar selecionar ao clicar em botões/inputs dentro do item
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    if(['button','input','select','textarea','a','svg','path'].includes(tag)) return;
+
+    const el = e.currentTarget;
+    const topId = parseFloat(el.dataset.topId);
+
+    // Se clicou em outra disciplina, limpa seleção anterior
+    if(selectedDiscId !== discId) {
+        selectedDiscId = discId;
+        selectedTopIds = new Set();
+        lastSelectIndex = null;
+    }
+
+    const isToggle = e.ctrlKey || e.metaKey;
+    const isRange = e.shiftKey;
+
+    if(isRange && lastSelectIndex !== null) {
+        // Selecionar intervalo
+        const items = Array.from(document.querySelectorAll(`.topic-item[data-disc-id="${discId}"]`))
+            .sort((a,b)=>parseInt(a.dataset.index)-parseInt(b.dataset.index));
+        const start = Math.min(lastSelectIndex, index);
+        const end = Math.max(lastSelectIndex, index);
+        for(let i=start;i<=end;i++){
+            const node = items[i];
+            if(node) selectedTopIds.add(parseFloat(node.dataset.topId));
+        }
+    } else if(isToggle) {
+        // Alternar item
+        if(selectedTopIds.has(topId)) selectedTopIds.delete(topId);
+        else selectedTopIds.add(topId);
+        lastSelectIndex = index;
+    } else {
+        // Seleção simples
+        selectedTopIds = new Set([topId]);
+        lastSelectIndex = index;
+    }
+
+    // Se ficou vazio, limpa tudo
+    if(selectedTopIds.size === 0) {
+        clearTopicSelection();
+        return;
+    }
+
+    applyTopicSelectionDOM(discId);
+}
+
 function onDragStart(e, discId, index) {
-    dragData = { discId, index };
-    e.target.classList.add('dragging');
+    const el = e.currentTarget;
+    const topId = parseFloat(el.dataset.topId);
+
+    // Se o item arrastado não está selecionado, transforma a seleção nele (drag de múltiplos)
+    if(selectedDiscId !== discId || !selectedTopIds.has(topId)) {
+        selectedDiscId = discId;
+        selectedTopIds = new Set([topId]);
+        lastSelectIndex = index;
+        applyTopicSelectionDOM(discId);
+    }
+
+    const d = state.disciplinas.find(x => x.id === discId);
+    if(!d) return;
+
+    const indices = [];
+    d.topicos.forEach((t, i) => {
+        if(selectedTopIds.has(t.id)) indices.push(i);
+    });
+    indices.sort((a,b)=>a-b);
+
+    dragData = { discId, indices, topIds: Array.from(selectedTopIds) };
+
+    el.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
 }
 
@@ -1530,34 +1621,57 @@ function onDragOver(e) {
 function onDrop(e, discId, targetIndex) {
     e.preventDefault();
     document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
-    
+
     if(!dragData || dragData.discId !== discId) return;
-    
-    const sourceIndex = dragData.index;
-    if(sourceIndex === targetIndex) return;
-    
+
     const d = state.disciplinas.find(x => x.id === discId);
     if(!d) return;
-    
-    // Guardar posição de scroll
+
+    const indices = (dragData.indices || []).slice().sort((a,b)=>a-b);
+    if(!indices.length) return;
+
+    // Se soltou em cima de um item que faz parte da seleção, não faz nada
+    if(indices.includes(targetIndex)) return;
+
+    // Guardar posição de scroll do accordion
     const accordion = document.getElementById('acc-' + discId);
     const accordionBody = accordion?.querySelector('.accordion-body');
     const scrollTop = accordionBody?.scrollTop || 0;
-    
-    // Mover item
-    const [item] = d.topicos.splice(sourceIndex, 1);
-    d.topicos.splice(targetIndex, 0, item);
-    
+
+    // Capturar os itens na ordem original
+    const moving = indices.map(i => d.topicos[i]);
+
+    // Remover de trás para frente
+    for(let i = indices.length - 1; i >= 0; i--) {
+        d.topicos.splice(indices[i], 1);
+    }
+
+    // Ajustar índice de inserção após remoções
+    const removedBefore = indices.filter(i => i < targetIndex).length;
+    let insertIndex = targetIndex - removedBefore;
+    if(insertIndex < 0) insertIndex = 0;
+    if(insertIndex > d.topicos.length) insertIndex = d.topicos.length;
+
+    // Inserir o bloco mantendo a ordem relativa
+    d.topicos.splice(insertIndex, 0, ...moving);
+
+    // Manter seleção nos mesmos tópicos
+    selectedDiscId = discId;
+    selectedTopIds = new Set(dragData.topIds || moving.map(t=>t.id));
+
     saveState();
-    
-    // Refresh mantendo estado
+
+    // Refresh mantendo estado/scroll
     refreshDisciplinasPreserveState(discId, scrollTop);
 }
 
 function onDragEnd(e) {
-    e.target.classList.remove('dragging');
+    e.currentTarget.classList.remove('dragging');
     document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
     dragData = null;
+
+    // Reaplicar seleção (o refresh pode ter acontecido no drop)
+    if(selectedDiscId !== null) applyTopicSelectionDOM(selectedDiscId);
 }
 
 function refreshDisciplinasPreserveState(openDiscId, scrollTop) {
@@ -2198,7 +2312,7 @@ function refreshDisciplinas() {
         const done = d.topicos.filter(t => t.status !== 'not-studied').length;
         const pct = total > 0 ? Math.round((done/total)*100) : 0;
         const topicsHtml = d.topicos.map((t, idx) => 
-            `<div class="topic-item" draggable="true" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}"
+            `<div class="topic-item ${selectedDiscId===d.id && selectedTopIds.has(t.id) ? 'selected' : '' }" draggable="true" data-disc-id="${d.id}" data-top-id="${t.id}" data-index="${idx}" onclick="onTopicItemClick(event, ${d.id}, ${idx})"
                 ondragstart="onDragStart(event, ${d.id}, ${idx})"
                 ondragover="onDragOver(event)"
                 ondrop="onDrop(event, ${d.id}, ${idx})"
