@@ -109,10 +109,13 @@
         .accordion-arrow { transition: transform 0.3s; }
         .accordion.open .accordion-arrow { transform: rotate(180deg); }
         .accordion-body { max-height: 0; overflow: hidden; transition: max-height 0.4s ease-out; }
-        .accordion.open .accordion-body { max-height: 2000px; overflow-y: auto; }
+        .accordion.open .accordion-body { max-height: 2000px; overflow-y: auto; overflow-x: hidden; }
         .accordion-content { padding: 16px; border-top: 1px solid var(--border); }
+        .topics-scroll { overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
+        .topics-scroll::-webkit-scrollbar { height: 8px; }
+        .topics-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
         /* TOPIC ITEM */
-        .topic-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-card); border-radius: 8px; margin-bottom: 6px; }
+        .topic-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-card); border-radius: 8px; margin-bottom: 6px; min-width: 620px; }
         .topic-num { font-size: 0.8rem; color: var(--text-muted); min-width: 28px; font-weight: 600; }
         .topic-name { flex: 1; font-size: 0.85rem; }
         .topic-status { display: flex; gap: 6px; }
@@ -287,6 +290,8 @@
         .topic-note-btn { background: none; border: none; cursor: pointer; font-size: 0.85rem; opacity: 0.4; transition: all 0.2s; padding: 4px; }
         .topic-note-btn:hover { opacity: 1; }
         .topic-note-btn.has-note { opacity: 1; background: rgba(99, 102, 241, 0.15); border-radius: 4px; }
+        .topic-move-btn { background: none; border: none; cursor: pointer; font-size: 0.9rem; opacity: 0.6; transition: all 0.2s; padding: 4px; border-radius: 4px; }
+        .topic-move-btn:hover { opacity: 1; background: rgba(99, 102, 241, 0.15); }
         .links-list { max-height: 300px; overflow-y: auto; }
         .link-item { display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--bg-primary); border-radius: 8px; margin-bottom: 8px; }
         .link-item a { flex: 1; color: var(--cyan); text-decoration: none; font-size: 0.85rem; word-break: break-all; }
@@ -1820,6 +1825,38 @@ function cleanupTopicGroupDrag(cancelled) {
     topicGroupDrag.targetIndex = null;
 }
 
+function moverTopicoParaPosicao(discId, topId) {
+    const d = state.disciplinas.find(x => x.id === discId);
+    if(!d) return;
+
+    const fromIndex = d.topicos.findIndex(t => t.id === topId);
+    if(fromIndex < 0) return;
+
+    const total = d.topicos.length;
+    const entrada = prompt(`Mover para qual posição? (1 até ${total})`, String(fromIndex + 1));
+    if(entrada === null) return;
+
+    const pos = parseInt(String(entrada).trim(), 10);
+    if(isNaN(pos) || pos < 1 || pos > total) {
+        showToast(`Digite uma posição válida entre 1 e ${total}.`, 'error');
+        return;
+    }
+
+    const toIndex = pos - 1;
+    if(toIndex === fromIndex) return;
+
+    const accordion = document.getElementById('acc-' + discId);
+    const accordionBody = accordion?.querySelector('.accordion-body');
+    const scrollTop = accordionBody?.scrollTop || 0;
+
+    const [item] = d.topicos.splice(fromIndex, 1);
+    d.topicos.splice(toIndex, 0, item);
+
+    saveState();
+    refreshDisciplinasPreserveState(discId, scrollTop);
+    showToast(`Tópico movido para a posição ${pos}.`);
+}
+
 // Função para editar nome do tópico
 function editarNomeTopico(discId, topId) {
     const d = state.disciplinas.find(x => x.id === discId);
@@ -2447,6 +2484,7 @@ function refreshDisciplinas() {
                 <div class="topic-num">${idx + 1}.</div>
                 <div class="topic-name" onclick="event.stopPropagation(); editarNomeTopico(${d.id},${t.id})" title="Clique para editar">${t.nome}${getTopicAcertosHtml(t.id)}</div>
                 <button class="topic-note-btn ${t.anotacao ? 'has-note' : ''}" onclick="event.stopPropagation(); abrirAnotacao(${d.id},${t.id})" title="${t.anotacao ? 'Ver anotação' : 'Adicionar anotação'}">📝</button>
+                <button class="topic-move-btn" onclick="event.stopPropagation(); moverTopicoParaPosicao(${d.id},${t.id})" title="Mover para posição">↕️</button>
                 <div class="topic-status">
                     <button class="status-btn s1 ${t.status==='not-studied'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'not-studied',this)" title="Não estudado">—</button>
                     <button class="status-btn s2 ${t.status==='studied'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'studied',this)" title="Estudado">E</button>
@@ -2479,7 +2517,7 @@ function refreshDisciplinas() {
                         <span><div class="status-dot s3"></div> Revisado</span>
                         <span><div class="status-dot s4"></div> Dominado</span>
                     </div>
-                    ${topicsHtml}
+                    <div class="topics-scroll">${topicsHtml}</div>
                 </div>
             </div>
         </div>`;
@@ -3981,7 +4019,27 @@ function limparSessoes() {
     refreshDashboard();
 }
 
-document.addEventListener('DOMContentLoaded', () => { loadTheme(); refreshDashboard(); });
+function initTopicHorizontalScroll() {
+    document.addEventListener('wheel', function(e) {
+        const scroller = e.target.closest('.topics-scroll');
+        if(!scroller) return;
+
+        const horizontalIntent = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+        if(!horizontalIntent) return;
+
+        const delta = e.deltaX || e.deltaY;
+        if(delta === 0) return;
+
+        scroller.scrollLeft += delta;
+        e.preventDefault();
+    }, { passive: false });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadTheme();
+    initTopicHorizontalScroll();
+    refreshDashboard();
+});
 
 // Mobile Menu
 function toggleMobileMenu() {
