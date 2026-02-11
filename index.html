@@ -460,6 +460,19 @@
             .mobile-header { display: none; }
             .mobile-overlay { display: none !important; }
         }
+    
+        .historico-controls{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            margin:10px 0 12px 0;
+        }
+        .historico-controls .btn{
+            padding:8px 10px;
+            font-size:0.85rem;
+        }
+
     </style>
 
     <!-- Firebase -->
@@ -647,7 +660,7 @@
                     <button class="btn btn-primary" onclick="manualSave()" style="width:100%">💾 Registrar</button>
                 </div>
             </div>
-            <div class="card"><div class="card-header"><div class="card-title">📋 Histórico</div><span style="font-size:0.8rem;color:var(--text-muted)" id="historicoCount">0</span></div><div id="historicoSessoes"><div class="empty"><div class="empty-icon">📝</div><div>Nenhuma sessão</div></div></div></div>
+            <div class="card"><div class="card-header"><div class="card-title">📋 Histórico</div><span style="font-size:0.8rem;color:var(--text-muted)" id="historicoCount">0</span></div><div class="historico-controls"><span id="historicoRangeInfo" style="font-size:0.8rem;color:var(--text-muted)"></span><div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-secondary" id="historicoMoreBtn" onclick="historicoMostrarMais()">+7 dias</button><button class="btn btn-secondary" id="historicoAllBtn" onclick="historicoMostrarTudo()">Tudo</button></div></div><div id="historicoSessoes"><div class="empty"><div class="empty-icon">📝</div><div>Nenhuma sessão</div></div></div></div>
         </div>
 
         <!-- DISCIPLINAS -->
@@ -1408,6 +1421,23 @@ let timerSeconds = 0;
 let timerStartTime = null;
 let timerPausedSeconds = 0;
 let currentRevTab = 'hoje';
+let historicoDiasVisiveis = 7;
+let historicoDiasStep = 7;
+let historicoMostrarTudoFlag = false;
+
+function historicoReset() {
+    historicoDiasVisiveis = 7;
+    historicoMostrarTudoFlag = false;
+}
+function historicoMostrarMais() {
+    historicoDiasVisiveis += historicoDiasStep;
+    renderHistorico();
+}
+function historicoMostrarTudo() {
+    historicoMostrarTudoFlag = true;
+    renderHistorico();
+}
+
 
 function loadState() { try { const s = localStorage.getItem(STORAGE_KEY); return s ? { ...defaultState, ...JSON.parse(s) } : { ...defaultState }; } catch(e) { return { ...defaultState }; } }
 function saveState() { 
@@ -1501,6 +1531,7 @@ function refreshRegistro() {
     document.getElementById('manualData').value = getToday();
     document.getElementById('timerTopico').innerHTML = '<option value="">Geral</option>';
     document.getElementById('manualTopico').innerHTML = '<option value="">Geral</option>';
+    historicoReset();
     renderHistorico();
 }
 function updateTimerTopicos() {
@@ -2157,19 +2188,41 @@ function renderHistorico() {
     
     if(!ss.length) { 
         c.innerHTML = '<div class="empty"><div class="empty-icon">📝</div><div>Nenhuma sessão</div></div>'; 
+        const rangeInfo = document.getElementById('historicoRangeInfo');
+        const btnMore = document.getElementById('historicoMoreBtn');
+        const btnAll = document.getElementById('historicoAllBtn');
+        if(rangeInfo) rangeInfo.textContent = '';
+        if(btnMore) btnMore.style.display = 'none';
+        if(btnAll) btnAll.style.display = 'none';
         return; 
     }
     
-    // Agrupar por data
+    // Agrupar por data (somente dias que têm sessões)
     const porDia = {};
-    ss.slice(0, 50).forEach(s => {
+    ss.forEach(s => {
         if(!porDia[s.data]) porDia[s.data] = [];
         porDia[s.data].push(s);
     });
     
-    let html = '';
+    // Determinar quais dias mostrar (padrão: últimos 7 dias)
+    const diasOrdenados = Object.keys(porDia).sort((a,b) => b.localeCompare(a));
+    const limiteDias = historicoMostrarTudoFlag ? diasOrdenados.length : Math.min(historicoDiasVisiveis, diasOrdenados.length);
+    const diasParaMostrar = diasOrdenados.slice(0, limiteDias);
+    
+    // Atualizar controles
+    const rangeInfo = document.getElementById('historicoRangeInfo');
+    const btnMore = document.getElementById('historicoMoreBtn');
+    const btnAll = document.getElementById('historicoAllBtn');
+    if(rangeInfo) {
+        rangeInfo.textContent = historicoMostrarTudoFlag ? `Mostrando todos os ${diasOrdenados.length} dias` : `Mostrando últimos ${limiteDias} de ${diasOrdenados.length} dias`;
+    }
+    if(btnMore) btnMore.style.display = (!historicoMostrarTudoFlag && limiteDias < diasOrdenados.length) ? '' : 'none';
+    if(btnAll) btnAll.style.display = historicoMostrarTudoFlag ? 'none' : '';
+
+let html = '';
     let isFirst = true;
-    for(const [data, sessoes] of Object.entries(porDia)) {
+    for(const data of diasParaMostrar) {
+        const sessoes = porDia[data];
         const {full, weekday} = formatDate(data);
         const totalDia = sessoes.reduce((a, s) => a + s.minutos, 0);
         
