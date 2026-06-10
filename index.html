@@ -227,6 +227,18 @@
         .meta-progress-text { font-size: 0.8rem; color: var(--text-sec); margin-top: 4px; }
         .meta-progress-pct { font-size: 1.25rem; font-weight: 700; min-width: 60px; text-align: right; }
     
+        /* Visão Semanal (Seg–Dom) */
+        .semana-resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+        .semana-resumo-box { background: var(--bg-primary); padding: 14px; border-radius: 8px; text-align: center; }
+        .semana-resumo-valor { font-size: 1.4rem; font-weight: 700; }
+        .semana-resumo-label { font-size: 0.75rem; color: var(--text-muted); }
+        .semana-chart { display: flex; align-items: flex-end; justify-content: space-between; height: 180px; padding: 10px 0; }
+        .semana-nav { display: flex; gap: 8px; align-items: center; }
+        .semana-label { font-size: 0.85rem; color: var(--text-sec); min-width: 170px; text-align: center; }
+        .stats-day-fill.hoje { background: linear-gradient(180deg, var(--cyan), var(--accent)); }
+        .stats-day-fill.domingo-sabado { opacity: 0.9; }
+        @media (max-width: 768px) { .semana-resumo { grid-template-columns: 1fr; } .semana-label { min-width: 0; } }
+    
         /* Theme Toggle */
         .theme-toggle { width: 100%; padding: 10px; margin-bottom: 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); cursor: pointer; font-size: 1rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
         .theme-toggle:hover { border-color: var(--accent); }
@@ -880,6 +892,29 @@
                 </div>
             </div>
             
+            <!-- VISÃO SEMANAL (Seg–Dom) -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📅 Visão Semanal (Seg–Dom)</div>
+                    <div class="semana-nav">
+                        <button class="btn btn-sm btn-secondary" onclick="semanaAnterior()">◀</button>
+                        <span class="semana-label" id="semanaLabel"></span>
+                        <button class="btn btn-sm btn-secondary" id="btnSemanaProxima" onclick="semanaProxima()">▶</button>
+                    </div>
+                </div>
+                <div class="semana-resumo" id="semanaResumo"></div>
+                <div class="semana-chart" id="semanaChart"></div>
+            </div>
+            
+            <!-- HISTÓRICO DE SEMANAS -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📈 Horas por Semana (últimas 12)</div>
+                    <span style="font-size:0.8rem;color:var(--text-muted);">✅ = meta semanal batida</span>
+                </div>
+                <div id="historicoSemanas"></div>
+            </div>
+            
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header"><div class="card-title">📚 Tempo por Disciplina</div></div>
@@ -1417,6 +1452,7 @@ const STORAGE_KEY = 'estudosPRO';
 const defaultState = { disciplinas: [], sessoes: [], revisoes: [], questoes: [], metas: { horas: 49, topicos: 10, questoes: 100, dataProva: '2026-02-22' }, intervalos: [1, 3, 7, 14, 30], cicloProgresso: [] };
 let state = loadState();
 let timerInterval = null;
+let timerRunning = false;
 let timerSeconds = 0;
 let timerStartTime = null;
 let timerPausedSeconds = 0;
@@ -1448,6 +1484,19 @@ function showToast(msg, type='success') { const c = document.getElementById('toa
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
+// SEGURANÇA: escapa conteúdo fornecido pelo usuário antes de injetar via innerHTML (anti-XSS)
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Aviso ao fechar/recarregar a página com o timer rodando (evita perder sessão não salva)
+window.addEventListener('beforeunload', (e) => {
+    if(timerRunning) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+
 function navTo(page) {
     document.querySelectorAll('.nav-item').forEach(i => { i.classList.remove('active'); if(i.dataset.page === page) i.classList.add('active'); });
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1465,8 +1514,16 @@ function navTo(page) {
 }
 document.querySelectorAll('.nav-item').forEach(i => i.addEventListener('click', () => { if(i.dataset.page) navTo(i.dataset.page); }));
 
-function getWeekStart() { const n = new Date(); const d = n.getDay(); const diff = n.getDate() - d + (d === 0 ? -6 : 1); return new Date(n.setDate(diff)).toISOString().split('T')[0]; }
-function getToday() { return new Date().toISOString().split('T')[0]; }
+// CORREÇÃO DE FUSO HORÁRIO: toISOString() usa UTC e, em Brasília (UTC-3),
+// a partir das 21h o dia "virava" para o dia seguinte. Agora usamos a data LOCAL.
+function localDateStr(d = new Date()) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + dd;
+}
+function getWeekStart() { const n = new Date(); const day = n.getDay(); n.setDate(n.getDate() + (day === 0 ? -6 : 1 - day)); return localDateStr(n); }
+function getToday() { return localDateStr(); }
 function formatDate(s) { 
     const d = new Date(s + 'T12:00:00'); 
     const diasSemana = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -1516,16 +1573,16 @@ function refreshDashboard() {
     document.getElementById('goalQuestoesPct').textContent = pctQ + '%';
     const rh = document.getElementById('revisoesHoje');
     if(!revHoje.length) { rh.innerHTML = '<div class="empty"><div class="empty-icon">✨</div><div>Nenhuma revisão hoje!</div></div>'; }
-    else { rh.innerHTML = revHoje.slice(0,5).map(r => { const disc = state.disciplinas.find(d => d.id === r.disciplinaId); const top = disc?.topicos.find(t => t.id === r.topicoId); const {day,month} = formatDate(r.data); return '<div class="review-item pending"><div class="review-date"><div class="review-day">'+day+'</div><div class="review-month">'+month+'</div></div><div class="review-info"><div class="review-subject">'+(disc?.nome||'?')+'</div><div class="review-topic">'+(top?.nome||'Geral')+'</div></div><button class="btn btn-sm btn-success" onclick="concluirRev('+r.id+')">✓</button></div>'; }).join(''); }
+    else { rh.innerHTML = revHoje.slice(0,5).map(r => { const disc = state.disciplinas.find(d => d.id === r.disciplinaId); const top = disc?.topicos.find(t => t.id === r.topicoId); const {day,month} = formatDate(r.data); return '<div class="review-item pending"><div class="review-date"><div class="review-day">'+day+'</div><div class="review-month">'+month+'</div></div><div class="review-info"><div class="review-subject">'+esc(disc?.nome||'?')+'</div><div class="review-topic">'+esc(top?.nome||'Geral')+'</div></div><button class="btn btn-sm btn-success" onclick="concluirRev('+r.id+')">✓</button></div>'; }).join(''); }
     refreshStreakXP();
     const dp = document.getElementById('disciplinasProgress');
     if(!state.disciplinas.length) { dp.innerHTML = '<div class="empty"><div class="empty-icon">📚</div><div>Cadastre disciplinas</div></div>'; }
-    else { dp.innerHTML = state.disciplinas.map(d => { const t = d.topicos.length; const done = d.topicos.filter(x => x.status && x.status !== 'not-studied').length; const comSessao = d.topicos.filter(x => state.sessoes.some(s => s.topicoId === x.id)).length; const total = Math.max(done, comSessao); const pct = t > 0 ? Math.round((total/t)*100) : 0; return '<div class="disc-item"><div class="disc-header"><span class="disc-name">'+d.nome+'</span><span class="disc-pct">'+pct+'%</span></div><div class="disc-bar"><div class="disc-fill" style="width:'+pct+'%"></div></div></div>'; }).join(''); }
+    else { dp.innerHTML = state.disciplinas.map(d => { const t = d.topicos.length; const done = d.topicos.filter(x => x.status && x.status !== 'not-studied').length; const comSessao = d.topicos.filter(x => state.sessoes.some(s => s.topicoId === x.id)).length; const total = Math.max(done, comSessao); const pct = t > 0 ? Math.round((total/t)*100) : 0; return '<div class="disc-item"><div class="disc-header"><span class="disc-name">'+esc(d.nome)+'</span><span class="disc-pct">'+pct+'%</span></div><div class="disc-bar"><div class="disc-fill" style="width:'+pct+'%"></div></div></div>'; }).join(''); }
 }
 
 // Registro
 function refreshRegistro() {
-    const opts = '<option value="">Selecione</option>' + state.disciplinas.map(d => '<option value="'+d.id+'">'+d.nome+'</option>').join('');
+    const opts = '<option value="">Selecione</option>' + state.disciplinas.map(d => '<option value="'+d.id+'">'+esc(d.nome)+'</option>').join('');
     document.getElementById('timerDisciplina').innerHTML = opts;
     document.getElementById('manualDisciplina').innerHTML = opts;
     document.getElementById('manualData').value = getToday();
@@ -1542,7 +1599,7 @@ function updateTimerTopicos() {
     const d = state.disciplinas.find(x => x.id === did);
     if(d && Array.isArray(d.topicos)) {
         d.topicos.forEach((t, idx) => {
-            sel.innerHTML += `<option value="${t.id}">${idx+1}. ${t.nome}</option>`;
+            sel.innerHTML += `<option value="${t.id}">${idx+1}. ${esc(t.nome)}</option>`;
         });
     }
 }
@@ -1554,7 +1611,7 @@ function updateManualTopicos() {
     const d = state.disciplinas.find(x => x.id === did);
     if(d && Array.isArray(d.topicos)) {
         d.topicos.forEach((t, idx) => {
-            sel.innerHTML += `<option value="${t.id}">${idx+1}. ${t.nome}</option>`;
+            sel.innerHTML += `<option value="${t.id}">${idx+1}. ${esc(t.nome)}</option>`;
         });
     }
 }
@@ -1586,14 +1643,12 @@ function clearTopicSelection() {
 }
 
 function onTopicItemClick(e, discId, index) {
-    // Evitar selecionar ao clicar em botões/inputs dentro do item
     const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
     if(['button','input','select','textarea','a','svg','path'].includes(tag)) return;
 
     const el = e.currentTarget;
     const topId = parseFloat(el.dataset.topId);
 
-    // Se clicou em outra disciplina, limpa seleção anterior
     if(selectedDiscId !== discId) {
         selectedDiscId = discId;
         selectedTopIds = new Set();
@@ -1604,7 +1659,6 @@ function onTopicItemClick(e, discId, index) {
     const isRange = e.shiftKey;
 
     if(isRange && lastSelectIndex !== null) {
-        // Selecionar intervalo
         const items = Array.from(document.querySelectorAll(`.topic-item[data-disc-id="${discId}"]`))
             .sort((a,b)=>parseInt(a.dataset.index)-parseInt(b.dataset.index));
         const start = Math.min(lastSelectIndex, index);
@@ -1614,17 +1668,14 @@ function onTopicItemClick(e, discId, index) {
             if(node) selectedTopIds.add(parseFloat(node.dataset.topId));
         }
     } else if(isToggle) {
-        // Alternar item
         if(selectedTopIds.has(topId)) selectedTopIds.delete(topId);
         else selectedTopIds.add(topId);
         lastSelectIndex = index;
     } else {
-        // Seleção simples
         selectedTopIds = new Set([topId]);
         lastSelectIndex = index;
     }
 
-    // Se ficou vazio, limpa tudo
     if(selectedTopIds.size === 0) {
         clearTopicSelection();
         return;
@@ -1637,7 +1688,6 @@ function onDragStart(e, discId, index) {
     const el = e.currentTarget;
     const topId = parseFloat(el.dataset.topId);
 
-    // Se o item arrastado não está selecionado, transforma a seleção nele (drag de múltiplos)
     if(selectedDiscId !== discId || !selectedTopIds.has(topId)) {
         selectedDiscId = discId;
         selectedTopIds = new Set([topId]);
@@ -1665,7 +1715,6 @@ function onDragOver(e) {
     e.dataTransfer.dropEffect = 'move';
     const item = e.target.closest('.topic-item');
     if(item && !item.classList.contains('dragging')) {
-        // Remover classe de todos
         document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
         item.classList.add('drag-over');
     }
@@ -1683,38 +1732,30 @@ function onDrop(e, discId, targetIndex) {
     const indices = (dragData.indices || []).slice().sort((a,b)=>a-b);
     if(!indices.length) return;
 
-    // Se soltou em cima de um item que faz parte da seleção, não faz nada
     if(indices.includes(targetIndex)) return;
 
-    // Guardar posição de scroll do accordion
     const accordion = document.getElementById('acc-' + discId);
     const accordionBody = accordion?.querySelector('.accordion-body');
     const scrollTop = accordionBody?.scrollTop || 0;
 
-    // Capturar os itens na ordem original
     const moving = indices.map(i => d.topicos[i]);
 
-    // Remover de trás para frente
     for(let i = indices.length - 1; i >= 0; i--) {
         d.topicos.splice(indices[i], 1);
     }
 
-    // Ajustar índice de inserção após remoções
     const removedBefore = indices.filter(i => i < targetIndex).length;
     let insertIndex = targetIndex - removedBefore;
     if(insertIndex < 0) insertIndex = 0;
     if(insertIndex > d.topicos.length) insertIndex = d.topicos.length;
 
-    // Inserir o bloco mantendo a ordem relativa
     d.topicos.splice(insertIndex, 0, ...moving);
 
-    // Manter seleção nos mesmos tópicos
     selectedDiscId = discId;
     selectedTopIds = new Set(dragData.topIds || moving.map(t=>t.id));
 
     saveState();
 
-    // Refresh mantendo estado/scroll
     refreshDisciplinasPreserveState(discId, scrollTop);
 }
 
@@ -1723,19 +1764,16 @@ function onDragEnd(e) {
     document.querySelectorAll('.topic-item.drag-over').forEach(el => el.classList.remove('drag-over'));
     dragData = null;
 
-    // Reaplicar seleção (o refresh pode ter acontecido no drop)
     if(selectedDiscId !== null) applyTopicSelectionDOM(selectedDiscId);
 }
 
 function refreshDisciplinasPreserveState(openDiscId, scrollTop) {
     refreshDisciplinas();
     
-    // Reabrir accordion
     const accordion = document.getElementById('acc-' + openDiscId);
     if(accordion) {
         accordion.classList.add('open');
         
-        // Restaurar scroll após render
         setTimeout(() => {
             const body = accordion.querySelector('.accordion-body');
             if(body) body.scrollTop = scrollTop;
@@ -1769,7 +1807,6 @@ function salvarEdicaoTopico() {
     const t = d?.topicos.find(x => x.id === topId);
     if(!t) return;
     
-    // Guardar estado
     const accordion = document.getElementById('acc-' + discId);
     const accordionBody = accordion?.querySelector('.accordion-body');
     const scrollTop = accordionBody?.scrollTop || 0;
@@ -1808,7 +1845,6 @@ function salvarAnotacao() {
         closeModal('modalAnotacao');
         showToast('Anotação salva!');
         
-        // Atualizar visual
         const wasOpen = document.getElementById('acc-'+discId)?.classList.contains('open');
         refreshDisciplinas();
         if(wasOpen) document.getElementById('acc-'+discId)?.classList.add('open');
@@ -1836,9 +1872,9 @@ function renderLinksList(discId) {
     
     container.innerHTML = links.map((link, i) => `
         <div class="link-item">
-            <a href="${link.url}" target="_blank" rel="noopener">
-                <span class="link-title">${link.titulo || 'Link'}</span>
-                <span class="link-url">${link.url}</span>
+            <a href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">
+                <span class="link-title">${esc(link.titulo || 'Link')}</span>
+                <span class="link-url">${esc(link.url)}</span>
             </a>
             <button class="link-delete" onclick="removerLink(${discId}, ${i})">🗑️</button>
         </div>
@@ -1848,10 +1884,21 @@ function renderLinksList(discId) {
 function adicionarLink() {
     const discId = parseFloat(document.getElementById('linksDiscId').value);
     const titulo = document.getElementById('linkTitulo').value.trim();
-    const url = document.getElementById('linkUrl').value.trim();
+    let url = document.getElementById('linkUrl').value.trim();
     
     if(!url) {
         showToast('Digite a URL!', 'error');
+        return;
+    }
+    
+    // SEGURANÇA: aceitar apenas http/https (bloqueia javascript:, data:, etc.)
+    if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    try {
+        const u = new URL(url);
+        if(u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('protocolo inválido');
+        url = u.href;
+    } catch(e) {
+        showToast('URL inválida! Use http:// ou https://', 'error');
         return;
     }
     
@@ -1899,20 +1946,19 @@ function tocarAlertaPomodoro() {
         oscillator.stop(startTime + duration);
     }
     
-    // 3 bips com intervalo
     const now = audioCtx.currentTime;
-    beep(880, now, 0.2);        // Bip 1
-    beep(880, now + 0.3, 0.2);  // Bip 2
-    beep(1100, now + 0.6, 0.3); // Bip 3 (mais agudo e longo)
+    beep(880, now, 0.2);
+    beep(880, now + 0.3, 0.2);
+    beep(1100, now + 0.6, 0.3);
 }
 
 // POMODORO
 let pomodoroAtivo = false;
 let pomodoroFase = 'foco'; // foco, pausa, pausa-longa
 let pomodoroCiclo = 1;
-const POMODORO_FOCO = 25 * 60; // 25 min
-const POMODORO_PAUSA = 5 * 60; // 5 min
-const POMODORO_PAUSA_LONGA = 15 * 60; // 15 min
+const POMODORO_FOCO = 25 * 60;
+const POMODORO_PAUSA = 5 * 60;
+const POMODORO_PAUSA_LONGA = 15 * 60;
 let pomodoroTempoFocoCompleto = 0;
 let proximaFasePomodoro = null;
 let proximoTempoPomodoro = 0;
@@ -1954,22 +2000,19 @@ function pomodoroTick() {
     
     if(timerSeconds <= 0) {
         clearInterval(timerInterval);
+        timerRunning = false;
         
-        // Tocar som/notificação - 3 bips
         tocarAlertaPomodoro();
         
         if(pomodoroFase === 'foco') {
-            // Fim do foco - NÃO zerar, guardar tempo para salvar
-            pomodoroTempoFocoCompleto = POMODORO_FOCO; // Guardar que completou 25min
+            pomodoroTempoFocoCompleto = POMODORO_FOCO;
             showToast('🍅 25 minutos de foco concluídos! Salve ou continue para pausa.');
             
-            // Habilitar salvar
             document.getElementById('btnStart').disabled = false;
             document.getElementById('btnStart').textContent = '☕ Pausa';
             document.getElementById('btnPause').disabled = true;
             document.getElementById('btnSave').disabled = false;
             
-            // Preparar próxima fase mas não iniciar automaticamente
             if(pomodoroCiclo >= 4) {
                 proximaFasePomodoro = 'pausa-longa';
                 proximoTempoPomodoro = POMODORO_PAUSA_LONGA;
@@ -1978,7 +2021,6 @@ function pomodoroTick() {
                 proximoTempoPomodoro = POMODORO_PAUSA;
             }
         } else {
-            // Fim da pausa - voltar para foco
             if(pomodoroFase === 'pausa-longa') {
                 pomodoroCiclo = 1;
                 showToast('🌟 Pausa longa concluída! Pronto para novo ciclo.');
@@ -2032,9 +2074,9 @@ function timerStart() {
     document.getElementById('btnPause').disabled = false; 
     document.getElementById('btnReset').disabled = false; 
     document.getElementById('btnSave').disabled = true; 
+    timerRunning = true;
     
     if(pomodoroAtivo) {
-        // Verificar se está iniciando pausa após foco
         if(proximaFasePomodoro && pomodoroTempoFocoCompleto > 0) {
             pomodoroFase = proximaFasePomodoro;
             timerSeconds = proximoTempoPomodoro;
@@ -2044,11 +2086,9 @@ function timerStart() {
             document.getElementById('btnStart').textContent = '▶️ Iniciar';
         }
         
-        // Modo Pomodoro - contagem regressiva
         timerStartTime = Date.now();
         timerInterval = setInterval(pomodoroTick, 1000);
     } else {
-        // Modo normal - contagem progressiva usando timestamp
         timerStartTime = Date.now();
         timerInterval = setInterval(() => { 
             const elapsed = Math.floor((Date.now() - timerStartTime) / 1000);
@@ -2059,13 +2099,15 @@ function timerStart() {
 }
 function timerPause() { 
     clearInterval(timerInterval); 
-    timerPausedSeconds = timerSeconds; // Guardar tempo atual
+    timerRunning = false;
+    timerPausedSeconds = timerSeconds;
     document.getElementById('btnStart').disabled = false; 
     document.getElementById('btnPause').disabled = true; 
     document.getElementById('btnSave').disabled = false; 
 }
 function timerReset() { 
     clearInterval(timerInterval); 
+    timerRunning = false;
     timerStartTime = null;
     timerPausedSeconds = 0;
     
@@ -2095,7 +2137,6 @@ function timerSave() {
     
     let mins;
     if(pomodoroAtivo) {
-        // No Pomodoro, usar tempo completo se terminou, senão calcular parcial
         if(pomodoroTempoFocoCompleto > 0) {
             mins = Math.ceil(pomodoroTempoFocoCompleto / 60);
         } else {
@@ -2113,7 +2154,6 @@ function timerSave() {
     const gerarRev = document.getElementById('timerGerarRevisao').checked;
     if(gerarRev) gerarRevisoes(sessao); 
     
-    // Salvar questões se marcado
     let questoesMsg = '';
     if(document.getElementById('timerComQuestoes').checked) {
         const total = parseInt(document.getElementById('timerQuestoesTotal').value);
@@ -2130,7 +2170,6 @@ function timerSave() {
                 acertos: acertos
             });
             questoesMsg = ' +' + total + ' questões.';
-            // Limpar campos
             document.getElementById('timerQuestoesTotal').value = '';
             document.getElementById('timerQuestoesAcertos').value = '';
         }
@@ -2152,7 +2191,6 @@ function manualSave() {
     const gerarRev = document.getElementById('manualGerarRevisao').checked;
     if(gerarRev) gerarRevisoes(sessao); 
     
-    // Salvar questões se marcado
     let questoesMsg = '';
     if(document.getElementById('manualComQuestoes').checked) {
         const total = parseInt(document.getElementById('manualQuestoesTotal').value);
@@ -2169,7 +2207,6 @@ function manualSave() {
                 acertos: acertos
             });
             questoesMsg = ' +' + total + ' questões.';
-            // Limpar campos
             document.getElementById('manualQuestoesTotal').value = '';
             document.getElementById('manualQuestoesAcertos').value = '';
         }
@@ -2180,7 +2217,7 @@ function manualSave() {
     showToast('Sessão registrada!' + (gerarRev ? ' Revisões criadas.' : '') + questoesMsg); 
     renderHistorico(); 
 }
-function gerarRevisoes(sessao) { const base = new Date(sessao.data + 'T12:00:00'); state.intervalos.forEach(dias => { const rd = new Date(base); rd.setDate(rd.getDate() + dias); state.revisoes.push({ id: Date.now() + Math.random(), sessaoId: sessao.id, disciplinaId: sessao.disciplinaId, topicoId: sessao.topicoId, data: rd.toISOString().split('T')[0], intervalo: dias, concluida: false }); }); }
+function gerarRevisoes(sessao) { const base = new Date(sessao.data + 'T12:00:00'); state.intervalos.forEach(dias => { const rd = new Date(base); rd.setDate(rd.getDate() + dias); state.revisoes.push({ id: Date.now() + Math.random(), sessaoId: sessao.id, disciplinaId: sessao.disciplinaId, topicoId: sessao.topicoId, data: localDateStr(rd), intervalo: dias, concluida: false }); }); }
 function renderHistorico() { 
     const c = document.getElementById('historicoSessoes'); 
     const ss = [...state.sessoes].sort((a,b) => b.data.localeCompare(a.data) || b.id - a.id); 
@@ -2197,19 +2234,16 @@ function renderHistorico() {
         return; 
     }
     
-    // Agrupar por data (somente dias que têm sessões)
     const porDia = {};
     ss.forEach(s => {
         if(!porDia[s.data]) porDia[s.data] = [];
         porDia[s.data].push(s);
     });
     
-    // Determinar quais dias mostrar (padrão: últimos 7 dias)
     const diasOrdenados = Object.keys(porDia).sort((a,b) => b.localeCompare(a));
     const limiteDias = historicoMostrarTudoFlag ? diasOrdenados.length : Math.min(historicoDiasVisiveis, diasOrdenados.length);
     const diasParaMostrar = diasOrdenados.slice(0, limiteDias);
     
-    // Atualizar controles
     const rangeInfo = document.getElementById('historicoRangeInfo');
     const btnMore = document.getElementById('historicoMoreBtn');
     const btnAll = document.getElementById('historicoAllBtn');
@@ -2219,7 +2253,7 @@ function renderHistorico() {
     if(btnMore) btnMore.style.display = (!historicoMostrarTudoFlag && limiteDias < diasOrdenados.length) ? '' : 'none';
     if(btnAll) btnAll.style.display = historicoMostrarTudoFlag ? 'none' : '';
 
-let html = '';
+    let html = '';
     let isFirst = true;
     for(const data of diasParaMostrar) {
         const sessoes = porDia[data];
@@ -2236,14 +2270,14 @@ let html = '';
         sessoes.forEach(s => {
             const d = state.disciplinas.find(x => x.id === s.disciplinaId);
             const t = d?.topicos.find(x => x.id === s.topicoId);
-                        let topicLabel = 'Geral';
+            let topicLabel = 'Geral';
             if(t && d && Array.isArray(d.topicos)) {
                 const idx = d.topicos.findIndex(x => x.id === t.id);
                 topicLabel = (idx >= 0 ? (idx + 1) + '. ' : '') + t.nome;
             }
-html += '<div class="session-item">';
+            html += '<div class="session-item">';
             html += '<div class="session-time">' + formatMins(s.minutos) + '</div>';
-            html += '<div class="session-info"><div class="session-subject">' + (d?.nome||'?') + '</div><div class="session-topic">' + topicLabel + '</div></div>';
+            html += '<div class="session-info"><div class="session-subject">' + esc(d?.nome||'?') + '</div><div class="session-topic">' + esc(topicLabel) + '</div></div>';
             html += '<div class="session-actions"><button class="session-edit" onclick="event.stopPropagation(); editarSessao(' + s.id + ')" title="Editar">✏️</button><button class="session-delete" onclick="event.stopPropagation(); deleteSessao(' + s.id + ')" title="Excluir">🗑️</button></div>';
             html += '</div>';
         });
@@ -2264,15 +2298,12 @@ function editarSessao(id) {
     document.getElementById('editSessaoData').value = sessao.data;
     document.getElementById('editSessaoMinutos').value = sessao.minutos;
     
-    // Preencher select de disciplinas
     const selectDisc = document.getElementById('editSessaoDisciplina');
     selectDisc.innerHTML = '<option value="">Selecione</option>' + 
-        state.disciplinas.map(d => `<option value="${d.id}" ${d.id === sessao.disciplinaId ? 'selected' : ''}>${d.nome}</option>`).join('');
+        state.disciplinas.map(d => `<option value="${d.id}" ${d.id === sessao.disciplinaId ? 'selected' : ''}>${esc(d.nome)}</option>`).join('');
     
-    // Atualizar tópicos e selecionar o correto
     updateEditSessaoTopicos(sessao.topicoId);
     
-    // Verificar se tem questões vinculadas
     const questao = state.questoes.find(q => q.sessaoId === id);
     if(questao) {
         document.getElementById('editSessaoQuestoesGroup').style.display = 'block';
@@ -2296,7 +2327,7 @@ function updateEditSessaoTopicos(selectedTopicoId = null) {
         const disc = state.disciplinas.find(d => d.id === discId);
         if(disc && Array.isArray(disc.topicos)) {
             selectTop.innerHTML += disc.topicos.map((t, idx) =>
-                `<option value="${t.id}" ${t.id === selectedTopicoId ? 'selected' : ''}>${idx+1}. ${t.nome}</option>`
+                `<option value="${t.id}" ${t.id === selectedTopicoId ? 'selected' : ''}>${idx+1}. ${esc(t.nome)}</option>`
             ).join('');
         }
     }
@@ -2314,7 +2345,6 @@ function salvarEdicaoSessao() {
         return;
     }
     
-    // Encontrar e atualizar sessão
     const sessao = state.sessoes.find(s => s.id === id);
     if(sessao) {
         sessao.data = data;
@@ -2322,7 +2352,6 @@ function salvarEdicaoSessao() {
         sessao.topicoId = topicoId;
         sessao.minutos = minutos;
         
-        // Atualizar revisões vinculadas (mudar disciplina/tópico)
         state.revisoes.forEach(r => {
             if(r.sessaoId === id) {
                 r.disciplinaId = disciplinaId;
@@ -2330,7 +2359,6 @@ function salvarEdicaoSessao() {
             }
         });
         
-        // Atualizar questões vinculadas
         const questaoExistente = state.questoes.find(q => q.sessaoId === id);
         const totalQ = parseInt(document.getElementById('editSessaoQuestoesTotal').value);
         const acertosQ = parseInt(document.getElementById('editSessaoQuestoesAcertos').value);
@@ -2354,22 +2382,15 @@ function salvarEdicaoSessao() {
 function deleteSessao(id) { 
     if(!confirm('Excluir sessão, revisões e questões associadas?')) return; 
     
-    // Contar itens que serão excluídos
     const revisoesAssociadas = state.revisoes.filter(r => r.sessaoId === id).length;
     const questoesAssociadas = state.questoes.filter(q => q.sessaoId === id).length;
     
-    // Excluir sessão
     state.sessoes = state.sessoes.filter(s => s.id !== id); 
-    
-    // Excluir revisões associadas
     state.revisoes = state.revisoes.filter(r => r.sessaoId !== id); 
-    
-    // Excluir questões associadas
     state.questoes = state.questoes.filter(q => q.sessaoId !== id);
     
     saveState(); 
     
-    // Feedback
     let msg = 'Sessão excluída';
     if(revisoesAssociadas > 0) msg += ' + ' + revisoesAssociadas + ' revisões';
     if(questoesAssociadas > 0) msg += ' + ' + questoesAssociadas + ' questões';
@@ -2377,7 +2398,6 @@ function deleteSessao(id) {
     
     renderHistorico(); 
     
-    // Atualizar abas
     if(typeof refreshRevisoes === 'function') refreshRevisoes();
     if(typeof refreshDisciplinas === 'function') refreshDisciplinas();
     refreshDashboard();
@@ -2399,7 +2419,7 @@ function refreshDisciplinas() {
                 ondragend="onDragEnd(event)">
                 <div class="topic-drag-handle" title="Arraste para reordenar">⠿</div>
                 <div class="topic-num">${idx + 1}.</div>
-                <div class="topic-name" onclick="event.stopPropagation(); editarNomeTopico(${d.id},${t.id})" title="Clique para editar">${t.nome}${getTopicAcertosHtml(t.id)}</div>
+                <div class="topic-name" onclick="event.stopPropagation(); editarNomeTopico(${d.id},${t.id})" title="Clique para editar">${esc(t.nome)}${getTopicAcertosHtml(t.id)}</div>
                 <button class="topic-note-btn ${t.anotacao ? 'has-note' : ''}" onclick="event.stopPropagation(); abrirAnotacao(${d.id},${t.id})" title="${t.anotacao ? 'Ver anotação' : 'Adicionar anotação'}">📝</button>
                 <div class="topic-status">
                     <button class="status-btn s1 ${t.status==='not-studied'?'active':''}" onclick="event.stopPropagation(); setStatus(${d.id},${t.id},'not-studied',this)" title="Não estudado">—</button>
@@ -2413,7 +2433,7 @@ function refreshDisciplinas() {
         
         return `<div class="accordion" id="acc-${d.id}">
             <div class="accordion-header" onclick="toggleAcc(${d.id})">
-                <div class="accordion-title">📘 ${d.nome}</div>
+                <div class="accordion-title">📘 ${esc(d.nome)}</div>
                 <div style="display:flex;align-items:center;gap:12px">
                     <span class="accordion-meta">${total} tópicos • ${pesoToText(d.peso)} • ${pct}%</span>
                     <span class="accordion-arrow">▼</span>
@@ -2456,7 +2476,6 @@ function salvarNovoTopico() {
         saveState(); 
         closeModal('modalAddTopic'); 
         showToast('Tópico adicionado!'); 
-        // Refresh mantendo accordion aberto
         refreshDisciplinas();
         document.getElementById('acc-'+discId)?.classList.add('open');
     } 
@@ -2466,7 +2485,6 @@ function deleteTopic(discId, topId) {
     if(d) { 
         d.topicos = d.topicos.filter(t => t.id !== topId); 
         saveState(); 
-        // Refresh para renumerar
         const wasOpen = document.getElementById('acc-'+discId)?.classList.contains('open');
         refreshDisciplinas();
         if(wasOpen) document.getElementById('acc-'+discId)?.classList.add('open');
@@ -2499,10 +2517,10 @@ function renderRevList() {
     else { lista = state.revisoes.filter(r => r.concluida); emptyMsg = 'Nenhuma revisão concluída ainda.'; }
     if(!lista.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">'+(currentRevTab === 'atrasadas' ? '✨' : '📋')+'</div><div>'+emptyMsg+'</div></div>'; return; }
     lista.sort((a,b) => { if(currentRevTab === 'concluidas') return (b.dataConclusao||'').localeCompare(a.dataConclusao||''); return a.data.localeCompare(b.data); });
-    c.innerHTML = lista.slice(0, 50).map(r => { const disc = state.disciplinas.find(d => d.id === r.disciplinaId); const top = disc?.topicos.find(t => t.id === r.topicoId); const {day, month, full} = formatDate(r.data); const isOverdue = !r.concluida && r.data < hoje; const isDone = r.concluida; const statusClass = isDone ? 'done' : (isOverdue ? 'overdue' : 'pending'); const badgeClass = isDone ? 'badge-done' : (isOverdue ? 'badge-overdue' : 'badge-pending'); const badgeText = isDone ? 'Concluída' : (isOverdue ? 'Atrasada' : 'Pendente'); return '<div class="review-item '+statusClass+'"><div class="review-date"><div class="review-day">'+day+'</div><div class="review-month">'+month+'</div></div><div class="review-info"><div class="review-subject">'+(disc?.nome||'?')+'</div><div class="review-topic">'+(top?.nome||'Geral')+'</div><div class="review-interval">R'+r.intervalo+' • '+full+'</div></div><span class="badge '+badgeClass+'">'+badgeText+'</span>'+(!isDone ? '<div class="review-actions"><button class="btn btn-sm btn-success" onclick="concluirRev('+r.id+')">✓</button><button class="btn btn-sm btn-secondary" onclick="adiarRev('+r.id+')">→</button></div>' : '')+'</div>'; }).join('');
+    c.innerHTML = lista.slice(0, 50).map(r => { const disc = state.disciplinas.find(d => d.id === r.disciplinaId); const top = disc?.topicos.find(t => t.id === r.topicoId); const {day, month, full} = formatDate(r.data); const isOverdue = !r.concluida && r.data < hoje; const isDone = r.concluida; const statusClass = isDone ? 'done' : (isOverdue ? 'overdue' : 'pending'); const badgeClass = isDone ? 'badge-done' : (isOverdue ? 'badge-overdue' : 'badge-pending'); const badgeText = isDone ? 'Concluída' : (isOverdue ? 'Atrasada' : 'Pendente'); return '<div class="review-item '+statusClass+'"><div class="review-date"><div class="review-day">'+day+'</div><div class="review-month">'+month+'</div></div><div class="review-info"><div class="review-subject">'+esc(disc?.nome||'?')+'</div><div class="review-topic">'+esc(top?.nome||'Geral')+'</div><div class="review-interval">R'+r.intervalo+' • '+full+'</div></div><span class="badge '+badgeClass+'">'+badgeText+'</span>'+(!isDone ? '<div class="review-actions"><button class="btn btn-sm btn-success" onclick="concluirRev('+r.id+')">✓</button><button class="btn btn-sm btn-secondary" onclick="adiarRev('+r.id+')">→</button></div>' : '')+'</div>'; }).join('');
 }
 function concluirRev(id) { const r = state.revisoes.find(x => x.id === id); if(r) { r.concluida = true; r.dataConclusao = getToday(); saveState(); showToast('Revisão concluída!'); refreshRevisoes(); refreshDashboard(); } }
-function adiarRev(id) { const r = state.revisoes.find(x => x.id === id); if(r) { const d = new Date(r.data + 'T12:00:00'); d.setDate(d.getDate() + 1); r.data = d.toISOString().split('T')[0]; saveState(); showToast('Adiada para ' + formatDate(r.data).full); refreshRevisoes(); } }
+function adiarRev(id) { const r = state.revisoes.find(x => x.id === id); if(r) { const d = new Date(r.data + 'T12:00:00'); d.setDate(d.getDate() + 1); r.data = localDateStr(d); saveState(); showToast('Adiada para ' + formatDate(r.data).full); refreshRevisoes(); } }
 
 
 
@@ -2527,10 +2545,6 @@ const BADGES = [
     { id: 'reviews_50', icon: '🔄', nome: '50 Revisões', desc: 'Completou 50 revisões', check: (s) => s.revisoes.filter(r => r.concluida).length >= 50 },
 ];
 
-// Sistema de 1000 níveis com progressão exponencial
-// Fórmula: XP para nível N = 10 * N^1.5 (acumulado)
-// Níveis 1-50 são mais rápidos, depois fica mais difícil
-
 const TITULOS_NIVEL = [
     { min: 1, max: 10, titulo: 'Noob', emoji: '🥒' },
     { min: 11, max: 25, titulo: 'Calouro', emoji: '🐣' },
@@ -2553,14 +2567,11 @@ const TITULOS_NIVEL = [
 ];
 
 function calcularXPParaNivel(nivel) {
-    // Progressão suave: primeiros níveis rápidos, depois mais lento
-    // Nível 1: 0 XP, Nível 2: 15 XP, Nível 50: ~3500 XP, Nível 100: ~10000 XP
     if(nivel <= 1) return 0;
     return Math.floor(10 * Math.pow(nivel, 1.5));
 }
 
 function getNivelPorXP(xp) {
-    // Busca binária para encontrar o nível
     let nivel = 1;
     for(let n = 1; n <= 1000; n++) {
         if(xp >= calcularXPParaNivel(n)) {
@@ -2584,39 +2595,31 @@ function getTituloPorNivel(nivel) {
 function calcularStreak(s) {
     if(!s.sessoes.length) return 0;
     
-    // Pegar datas únicas ordenadas (mais recente primeiro)
     const datasUnicas = [...new Set(s.sessoes.map(x => x.data))].sort().reverse();
     if(!datasUnicas.length) return 0;
     
-    // Calcular hoje e ontem no fuso local
     const hoje = getToday();
     const ontemDate = new Date();
     ontemDate.setDate(ontemDate.getDate() - 1);
-    const ontem = ontemDate.toISOString().split('T')[0];
+    const ontem = localDateStr(ontemDate);
     
-    // A última data de estudo
     const ultimaData = datasUnicas[0];
     
-    // Se não estudou hoje nem ontem, streak = 0
     if(ultimaData !== hoje && ultimaData !== ontem) return 0;
     
-    // Calcular streak contando dias consecutivos para trás
     let streak = 1;
     
     for(let i = 0; i < datasUnicas.length - 1; i++) {
         const dataAtual = datasUnicas[i];
         const proximaData = datasUnicas[i + 1];
         
-        // Calcular diferença em dias
         const d1 = new Date(dataAtual + 'T00:00:00');
         const d2 = new Date(proximaData + 'T00:00:00');
         const diffDias = Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
         
-        // Se a diferença é exatamente 1 dia, continua o streak
         if(diffDias === 1) {
             streak++;
         } else {
-            // Quebrou a sequência
             break;
         }
     }
@@ -2627,19 +2630,10 @@ function calcularStreak(s) {
 function calcularXP(s) {
     let xp = 0;
     
-    // XP por horas estudadas (10 XP por hora)
     xp += Math.floor(s.sessoes.reduce((a,x) => a + x.minutos, 0) / 60) * 10;
-    
-    // XP por tópicos dominados (20 XP cada)
     xp += s.disciplinas.reduce((a,d) => a + d.topicos.filter(t => t.status === 'mastered').length, 0) * 20;
-    
-    // XP por questões resolvidas (1 XP cada)
     xp += s.questoes.reduce((a,q) => a + q.total, 0);
-    
-    // XP por revisões concluídas (5 XP cada)
     xp += s.revisoes.filter(r => r.concluida).length * 5;
-    
-    // XP por badges (50 XP cada)
     xp += (s.badgesEarned || []).length * 50;
     
     return xp;
@@ -2661,11 +2655,9 @@ function getNivel(xp) {
 }
 
 function refreshStreakXP() {
-    // Streak
     const streak = calcularStreak(state);
     document.getElementById('streakDias').textContent = streak;
     
-    // XP e Nível
     const xp = calcularXP(state);
     const nivel = getNivel(xp);
     const xpNoNivel = xp - nivel.xpMin;
@@ -2678,7 +2670,6 @@ function refreshStreakXP() {
     document.getElementById('xpNext').textContent = nivel.xpMax;
     document.getElementById('xpFill').style.width = pctNivel + '%';
     
-    // Badges
     if(!state.badgesEarned) state.badgesEarned = [];
     
     let newBadge = false;
@@ -2702,7 +2693,7 @@ function refreshStreakXP() {
 function abrirImportarTopicos() {
     const select = document.getElementById('importTopicosDisc');
     select.innerHTML = '<option value="">Selecione a disciplina</option>' +
-        state.disciplinas.map(d => `<option value="${d.id}">${d.nome}</option>`).join('');
+        state.disciplinas.map(d => `<option value="${d.id}">${esc(d.nome)}</option>`).join('');
     document.getElementById('importTopicosLista').value = '';
     openModal('modalImportTopicos');
 }
@@ -2719,7 +2710,6 @@ function importarTopicosLote() {
     const disc = state.disciplinas.find(d => d.id === discId);
     if(!disc) return;
     
-    // Processar lista
     const linhas = lista.split('\n')
         .map(l => l.trim())
         .filter(l => l.length > 0);
@@ -2729,10 +2719,8 @@ function importarTopicosLote() {
         return;
     }
     
-    // Adicionar tópicos
     let adicionados = 0;
     linhas.forEach(nome => {
-        // Verificar se já existe
         const existe = disc.topicos.some(t => t.nome.toLowerCase() === nome.toLowerCase());
         if(!existe) {
             disc.topicos.push({
@@ -2750,7 +2738,6 @@ function importarTopicosLote() {
     showToast(`${adicionados} tópicos importados!`);
     refreshDisciplinas();
     
-    // Abrir o accordion da disciplina
     setTimeout(() => {
         document.getElementById('acc-' + discId)?.classList.add('open');
     }, 100);
@@ -2766,41 +2753,33 @@ function refreshCalendario() {
     
     document.getElementById('calendarioMesAno').textContent = meses[calendarioMes] + ' ' + calendarioAno;
     
-    // Meta diária (semanal / 7)
     const metaDiaria = (state.metas.horas || 49) / 7;
     
-    // Mostrar meta diária na legenda
     document.getElementById('calendarioMetaDiaria').textContent = 'Meta: ' + metaDiaria.toFixed(1) + 'h/dia';
     
     const grid = document.getElementById('calendarioGrid');
     const hoje = new Date();
-    const hojeStr = hoje.toISOString().split('T')[0];
+    const hojeStr = localDateStr(hoje);
     
-    // Headers dos dias
     const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
     let html = diasSemana.map(d => `<div class="cal-header">${d}</div>`).join('');
     
-    // Primeiro dia do mês
     const primeiroDia = new Date(calendarioAno, calendarioMes, 1);
     const ultimoDia = new Date(calendarioAno, calendarioMes + 1, 0);
     
-    // Dias vazios antes do primeiro dia
     for(let i = 0; i < primeiroDia.getDay(); i++) {
         html += '<div class="cal-dia outro-mes"></div>';
     }
     
-    // Dias do mês
     for(let dia = 1; dia <= ultimoDia.getDate(); dia++) {
         const dataStr = `${calendarioAno}-${String(calendarioMes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
         const dataObj = new Date(calendarioAno, calendarioMes, dia);
         
-        // Calcular horas estudadas nesse dia
         const minutosDia = state.sessoes
             .filter(s => s.data === dataStr)
             .reduce((a, s) => a + s.minutos, 0);
         const horasDia = minutosDia / 60;
         
-        // Determinar classe
         let classe = 'cal-dia';
         if(dataStr === hojeStr) classe += ' hoje';
         
@@ -2847,7 +2826,7 @@ function mostrarDiaDetalhe(dataStr) {
     const dataObj = new Date(dataStr + 'T12:00:00');
     const hoje = new Date();
     
-    if(dataObj > hoje) return; // Não mostrar futuro
+    if(dataObj > hoje) return;
     
     const sessoesDia = state.sessoes.filter(s => s.data === dataStr);
     const questoesDia = state.questoes.filter(q => q.data === dataStr);
@@ -2862,7 +2841,6 @@ function mostrarDiaDetalhe(dataStr) {
     if(sessoesDia.length === 0 && questoesDia.length === 0) {
         conteudo.innerHTML = '<div class="empty" style="padding:20px;"><div class="empty-icon">😴</div><div>Nenhum estudo registrado</div></div>';
     } else {
-        // Agrupar por disciplina
         const porDisc = {};
         sessoesDia.forEach(s => {
             const disc = state.disciplinas.find(d => d.id === s.disciplinaId);
@@ -2879,13 +2857,12 @@ function mostrarDiaDetalhe(dataStr) {
         let html = '';
         for(const [nome, dados] of Object.entries(porDisc)) {
             html += `<div class="cal-detalhe-item">
-                <div class="cal-detalhe-disc">📚 ${nome}</div>
+                <div class="cal-detalhe-disc">📚 ${esc(nome)}</div>
                 <div class="cal-detalhe-tempo">⏱️ ${formatMins(dados.minutos)}</div>
-                ${dados.topicos.length > 0 ? '<div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">📖 ' + dados.topicos.join(', ') + '</div>' : ''}
+                ${dados.topicos.length > 0 ? '<div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">📖 ' + dados.topicos.map(esc).join(', ') + '</div>' : ''}
             </div>`;
         }
         
-        // Questões
         if(questoesDia.length > 0) {
             const totalQ = questoesDia.reduce((a, q) => a + q.total, 0);
             const acertosQ = questoesDia.reduce((a, q) => a + q.acertos, 0);
@@ -2896,7 +2873,6 @@ function mostrarDiaDetalhe(dataStr) {
             </div>`;
         }
         
-        // Total do dia
         const totalMin = sessoesDia.reduce((a, s) => a + s.minutos, 0);
         html += `<div style="text-align:center;padding:12px;font-weight:600;color:var(--accent);">
             Total: ${formatMins(totalMin)}
@@ -2917,7 +2893,6 @@ function toggleTheme() {
     html.setAttribute('data-theme', newTheme);
     document.getElementById('themeIcon').textContent = newTheme === 'light' ? '☀️' : '🌙';
     
-    // Salvar preferência
     state.tema = newTheme;
     saveState();
 }
@@ -2956,20 +2931,17 @@ function refreshCiclos() {
     container.innerHTML = state.disciplinas.map(d => 
         `<div class="ciclo-disc-item">
             <input type="checkbox" id="ciclo-disc-${d.id}">
-            <label class="ciclo-disc-name" for="ciclo-disc-${d.id}">${d.nome}</label>
+            <label class="ciclo-disc-name" for="ciclo-disc-${d.id}">${esc(d.nome)}</label>
             <span class="ciclo-disc-peso">${pesoToShort(d.peso)} Peso ${d.peso}</span>
         </div>`
     ).join('');
     
-    // Carregar horas da meta se existir
     document.getElementById('cicloHorasSemana').value = state.metas.horas || 49;
     
-    // Carregar configuração salva
     if(state.ultimoCicloConfig) {
         document.getElementById('cicloPassos').value = state.ultimoCicloConfig.totalPassos || 32;
         document.getElementById('cicloHorasSemana').value = state.ultimoCicloConfig.horasSemana || 49;
         
-        // Marcar disciplinas que estavam selecionadas
         if(state.ultimoCicloConfig.distribuicao) {
             state.ultimoCicloConfig.distribuicao.forEach(d => {
                 const cb = document.getElementById('ciclo-disc-' + d.id);
@@ -2978,7 +2950,6 @@ function refreshCiclos() {
         }
     }
     
-    // Restaurar ciclo gerado se existir
     if(state.ultimoCiclo && state.ultimoCiclo.length > 0) {
         restaurarCicloVisual();
     }
@@ -2992,13 +2963,11 @@ function restaurarCicloVisual() {
     const distribuicao = state.ultimoCicloConfig.distribuicao || [];
     const progressoSalvo = state.cicloProgresso || [];
     
-    // Restaurar gráfico de pizza
     if(distribuicao.length > 0) {
         renderPizzaChart(distribuicao);
         renderLegenda(distribuicao, horasSemana);
     }
     
-    // Restaurar ciclo gerado
     document.getElementById('cicloResultado').innerHTML = 
         '<div class="ciclo-progress-bar"><div class="ciclo-progress-fill" id="cicloProgressFill" style="width:0%"></div></div>' +
         '<div class="ciclo-progress-info"><span id="cicloProgressText">0/' + totalPassos + ' passos</span><span id="cicloProgressPct">0%</span></div>' +
@@ -3013,12 +2982,11 @@ function restaurarCicloVisual() {
                         <button class="ciclo-btn ${concluido ? 'active' : ''}" onclick="marcarConcluido(${i})" title="Concluído">✓</button>
                     </div>
                 </div>
-                <div class="ciclo-step-disc">${item.nome}</div>
+                <div class="ciclo-step-disc">${esc(item.nome)}</div>
                 <div class="ciclo-step-tempo">⏱️ ${item.minutos} min</div>
             </div>`;
         }).join('') + '</div>';
     
-    // Resumo e botões
     document.getElementById('cicloResumo').textContent = totalPassos + ' passos • ' + horasSemana + 'h/semana';
     document.getElementById('btnCopiarCiclo').style.display = 'inline-flex';
     document.getElementById('btnResetCiclo').style.display = 'inline-flex';
@@ -3030,7 +2998,6 @@ function gerarCiclo() {
     const totalPassos = parseInt(document.getElementById('cicloPassos').value) || 32;
     const horasSemana = parseFloat(document.getElementById('cicloHorasSemana').value) || 49;
     
-    // Pegar disciplinas selecionadas
     const discsSelecionadas = state.disciplinas.filter(d => {
         const cb = document.getElementById('ciclo-disc-' + d.id);
         return cb && cb.checked;
@@ -3041,7 +3008,6 @@ function gerarCiclo() {
         return;
     }
     
-    // Calcular distribuição proporcional baseada no peso
     const totalPeso = discsSelecionadas.reduce((a, d) => a + d.peso, 0);
     let distribuicao = discsSelecionadas.map((d, i) => ({
         id: d.id,
@@ -3053,7 +3019,6 @@ function gerarCiclo() {
         horasSemana: (d.peso / totalPeso) * horasSemana
     }));
     
-    // Ajustar para totalizar exatamente o número de passos
     let somaPassos = distribuicao.reduce((a, d) => a + d.passos, 0);
     while(somaPassos !== totalPassos) {
         if(somaPassos < totalPassos) {
@@ -3068,25 +3033,18 @@ function gerarCiclo() {
         }
     }
     
-    // Calcular minutos por passo para cada disciplina
     const minutosTotais = horasSemana * 60;
     distribuicao.forEach(d => {
         d.minutosPorPasso = Math.round((d.horasSemana * 60) / d.passos);
     });
     
-    // Gerar gráfico de pizza SVG
     renderPizzaChart(distribuicao);
-    
-    // Gerar legenda
     renderLegenda(distribuicao, horasSemana);
     
-    // Gerar ciclo com distribuição espaçada
     const cicloDetalhado = gerarCicloEspacado(distribuicao, totalPassos);
     
-    // Carregar progresso salvo
     const progressoSalvo = state.cicloProgresso || [];
     
-    // Mostrar resultado
     document.getElementById('cicloResultado').innerHTML = 
         '<div class="ciclo-progress-bar"><div class="ciclo-progress-fill" id="cicloProgressFill" style="width:0%"></div></div>' +
         '<div class="ciclo-progress-info"><span id="cicloProgressText">0/' + totalPassos + ' passos</span><span id="cicloProgressPct">0%</span></div>' +
@@ -3101,19 +3059,17 @@ function gerarCiclo() {
                         <button class="ciclo-btn ${concluido ? 'active' : ''}" onclick="marcarConcluido(${i})" title="Concluído">✓</button>
                     </div>
                 </div>
-                <div class="ciclo-step-disc">${item.nome}</div>
+                <div class="ciclo-step-disc">${esc(item.nome)}</div>
                 <div class="ciclo-step-tempo">⏱️ ${item.minutos} min</div>
             </div>`;
         }).join('') + '</div>';
     
     atualizarProgressoCiclo();
     
-    // Resumo
     document.getElementById('cicloResumo').textContent = `${totalPassos} passos • ${horasSemana}h/semana`;
     document.getElementById('btnCopiarCiclo').style.display = 'inline-flex';
     document.getElementById('btnResetCiclo').style.display = 'inline-flex';
     
-    // Guardar ciclo no estado
     state.ultimoCiclo = cicloDetalhado;
     state.ultimoCicloConfig = { totalPassos, horasSemana, distribuicao };
     saveState();
@@ -3126,24 +3082,21 @@ function renderPizzaChart(distribuicao) {
     const center = size / 2;
     const radius = 70;
     
-    let startAngle = -90; // Começar do topo
+    let startAngle = -90;
     let paths = '';
     
     distribuicao.forEach(d => {
         const angle = (d.pctTempo / 100) * 360;
         const endAngle = startAngle + angle;
         
-        // Converter para radianos
         const startRad = (startAngle * Math.PI) / 180;
         const endRad = (endAngle * Math.PI) / 180;
         
-        // Calcular pontos
         const x1 = center + radius * Math.cos(startRad);
         const y1 = center + radius * Math.sin(startRad);
         const x2 = center + radius * Math.cos(endRad);
         const y2 = center + radius * Math.sin(endRad);
         
-        // Large arc flag
         const largeArc = angle > 180 ? 1 : 0;
         
         paths += `<path d="M${center},${center} L${x1},${y1} A${radius},${radius} 0 ${largeArc},1 ${x2},${y2} Z" fill="${d.cor}" stroke="var(--bg-card)" stroke-width="2"/>`;
@@ -3165,7 +3118,7 @@ function renderLegenda(distribuicao, horasSemana) {
         return `<div class="ciclo-legenda-item">
             <div class="ciclo-legenda-cor" style="background:${d.cor}"></div>
             <div class="ciclo-legenda-info">
-                <div>${d.nome}</div>
+                <div>${esc(d.nome)}</div>
                 <div class="ciclo-legenda-tempo">${d.passos} passos • ${tempoStr}/sem • ${d.pctTempo.toFixed(1)}%</div>
             </div>
         </div>`;
@@ -3173,7 +3126,6 @@ function renderLegenda(distribuicao, horasSemana) {
 }
 
 function gerarCicloEspacado(distribuicao, totalPassos) {
-    // Criar pool com info completa
     let pool = [];
     distribuicao.forEach(d => {
         for(let i = 0; i < d.passos; i++) {
@@ -3181,7 +3133,6 @@ function gerarCicloEspacado(distribuicao, totalPassos) {
         }
     });
     
-    // Algoritmo de espaçamento
     const ciclo = [];
     let lastId = null;
     
@@ -3209,17 +3160,14 @@ function gerarCicloEspacado(distribuicao, totalPassos) {
 function marcarEmAndamento(stepIndex) {
     if(!state.cicloProgresso) state.cicloProgresso = [];
     
-    // Garantir que o array tenha o tamanho correto
     const totalPassos = state.ultimoCiclo?.length || 0;
     while(state.cicloProgresso.length < totalPassos) {
         state.cicloProgresso.push(false);
     }
     
-    // Se já está em andamento, desmarcar
     if(state.cicloProgresso[stepIndex] === 'andamento') {
         state.cicloProgresso[stepIndex] = false;
     } else {
-        // Limpar outros "em andamento" e marcar este
         for(let i = 0; i < state.cicloProgresso.length; i++) {
             if(state.cicloProgresso[i] === 'andamento') {
                 state.cicloProgresso[i] = false;
@@ -3235,13 +3183,11 @@ function marcarEmAndamento(stepIndex) {
 function marcarConcluido(stepIndex) {
     if(!state.cicloProgresso) state.cicloProgresso = [];
     
-    // Garantir que o array tenha o tamanho correto
     const totalPassos = state.ultimoCiclo?.length || 0;
     while(state.cicloProgresso.length < totalPassos) {
         state.cicloProgresso.push(false);
     }
     
-    // Toggle concluído
     if(state.cicloProgresso[stepIndex] === true) {
         state.cicloProgresso[stepIndex] = false;
     } else {
@@ -3357,7 +3303,6 @@ function renderMetasProgresso() {
     const ws = getWeekStart();
     const hoje = getToday();
     
-    // Calcular progresso
     const minsSemana = state.sessoes.filter(s => s.data >= ws).reduce((a,s) => a + s.minutos, 0);
     const horasSemana = Math.round(minsSemana / 60 * 10) / 10;
     const topicosDominados = state.disciplinas.reduce((a,d) => a + d.topicos.filter(t => t.status === 'mastered').length, 0);
@@ -3408,7 +3353,6 @@ function renderMetasProgresso() {
 
 // ESTATÍSTICAS
 function refreshStats() {
-    // Totais gerais
     const totalMins = state.sessoes.reduce((a,s) => a + s.minutos, 0);
     const totalHoras = Math.round(totalMins / 60 * 10) / 10;
     const totalSessoes = state.sessoes.length;
@@ -3416,20 +3360,20 @@ function refreshStats() {
     document.getElementById('statTotalHoras').textContent = totalHoras + 'h';
     document.getElementById('statTotalSessoes').textContent = totalSessoes;
     
-    // Dias únicos estudados
     const diasUnicos = [...new Set(state.sessoes.map(s => s.data))].length;
     document.getElementById('statDiasEstudados').textContent = diasUnicos;
     
-    // Média últimos 7 dias
     const hoje = new Date();
     const seteDiasAtras = new Date(hoje);
     seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
-    const seteDiasStr = seteDiasAtras.toISOString().split('T')[0];
+    const seteDiasStr = localDateStr(seteDiasAtras);
     
     const minsUltimos7 = state.sessoes.filter(s => s.data >= seteDiasStr).reduce((a,s) => a + s.minutos, 0);
     const mediaHoras = Math.round(minsUltimos7 / 7 / 60 * 10) / 10;
     document.getElementById('statMediaDiaria').textContent = mediaHoras + 'h';
     
+    renderVisaoSemanal();
+    renderHistoricoSemanas();
     renderStatsPorDisciplina();
     renderStatsUltimos7Dias();
     renderStatsTopicos();
@@ -3438,10 +3382,133 @@ function refreshStats() {
     renderStatsPrevisao();
 }
 
+// ===== VISÃO SEMANAL (Seg–Dom) =====
+let semanaOffset = 0; // 0 = semana atual; -1 = semana anterior; etc.
+
+function getMondayDate(offsetWeeks = 0) {
+    const n = new Date();
+    const day = n.getDay();
+    n.setDate(n.getDate() + (day === 0 ? -6 : 1 - day) + offsetWeeks * 7);
+    n.setHours(0, 0, 0, 0);
+    return n;
+}
+
+function minutosDoDia(dataStr) {
+    return state.sessoes.filter(s => s.data === dataStr).reduce((a, s) => a + s.minutos, 0);
+}
+
+function semanaAnterior() { semanaOffset--; renderVisaoSemanal(); }
+function semanaProxima() { if(semanaOffset < 0) { semanaOffset++; renderVisaoSemanal(); } }
+
+function renderVisaoSemanal() {
+    const elLabel = document.getElementById('semanaLabel');
+    if(!elLabel) return;
+    
+    const monday = getMondayDate(semanaOffset);
+    const labels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+    const hojeStr = getToday();
+    const dias = [];
+    let totalMins = 0;
+    
+    for(let i = 0; i < 7; i++) {
+        const d = new Date(monday);
+        d.setDate(d.getDate() + i);
+        const ds = localDateStr(d);
+        const mins = minutosDoDia(ds);
+        totalMins += mins;
+        dias.push({ label: labels[i], data: ds, diaNum: d.getDate(), mins: mins, isHoje: ds === hojeStr });
+    }
+    
+    const sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
+    const fmtCurto = dt => dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const fmtLongo = dt => dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    elLabel.textContent = (semanaOffset === 0 ? 'Semana atual • ' : '') + fmtCurto(monday) + ' – ' + fmtLongo(sunday);
+    
+    const btnProx = document.getElementById('btnSemanaProxima');
+    if(btnProx) btnProx.disabled = semanaOffset >= 0;
+    
+    const totalHoras = Math.round(totalMins / 60 * 10) / 10;
+    const diasDecorridos = semanaOffset < 0 ? 7 : Math.max(1, dias.filter(d => d.data <= hojeStr).length);
+    const mediaDia = Math.round(totalMins / diasDecorridos / 60 * 10) / 10;
+    const metaH = state.metas.horas || 49;
+    const pctMeta = Math.round((totalHoras / metaH) * 100);
+    const corMeta = pctMeta >= 100 ? 'var(--success)' : pctMeta >= 60 ? 'var(--warning)' : 'var(--danger)';
+    
+    document.getElementById('semanaResumo').innerHTML = `
+        <div class="semana-resumo-box">
+            <div class="semana-resumo-valor" style="color:var(--accent);">${totalHoras}h</div>
+            <div class="semana-resumo-label">Total da semana</div>
+        </div>
+        <div class="semana-resumo-box">
+            <div class="semana-resumo-valor" style="color:var(--cyan);">${mediaDia}h</div>
+            <div class="semana-resumo-label">Média por dia${semanaOffset === 0 ? ' (até hoje)' : ''}</div>
+        </div>
+        <div class="semana-resumo-box">
+            <div class="semana-resumo-valor" style="color:${corMeta};">${pctMeta}%</div>
+            <div class="semana-resumo-label">da meta (${metaH}h)</div>
+        </div>`;
+    
+    const maxMins = Math.max(...dias.map(d => d.mins), 60);
+    document.getElementById('semanaChart').innerHTML = dias.map(d => {
+        const altura = Math.max(3, Math.round((d.mins / maxMins) * 120));
+        const horas = Math.round(d.mins / 60 * 10) / 10;
+        return `<div class="stats-day-col">
+            <div class="stats-day-value">${d.mins > 0 ? horas + 'h' : '–'}</div>
+            <div class="stats-day-bar-wrap"><div class="stats-day-fill ${d.isHoje ? 'hoje' : ''}" style="height:${altura}px"></div></div>
+            <div class="stats-day-label" style="${d.isHoje ? 'color:var(--accent);font-weight:700;' : ''}">${d.label} ${d.diaNum}</div>
+        </div>`;
+    }).join('');
+}
+
+function renderHistoricoSemanas() {
+    const container = document.getElementById('historicoSemanas');
+    if(!container) return;
+    
+    const metaMins = (state.metas.horas || 49) * 60;
+    const semanas = [];
+    let maxMins = 0;
+    
+    for(let w = 0; w > -12; w--) {
+        const mon = getMondayDate(w);
+        let mins = 0;
+        for(let i = 0; i < 7; i++) {
+            const d = new Date(mon);
+            d.setDate(d.getDate() + i);
+            mins += minutosDoDia(localDateStr(d));
+        }
+        const sun = new Date(mon);
+        sun.setDate(sun.getDate() + 6);
+        semanas.push({ mon: mon, sun: sun, mins: mins });
+        maxMins = Math.max(maxMins, mins);
+    }
+    
+    if(maxMins === 0) {
+        container.innerHTML = '<div class="empty"><div class="empty-icon">📈</div><div>Registre sessões para ver o histórico semanal</div></div>';
+        return;
+    }
+    
+    const fmt = dt => dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const base = Math.max(maxMins, metaMins);
+    
+    container.innerHTML = semanas.map((s, i) => {
+        const horas = Math.round(s.mins / 60 * 10) / 10;
+        const pct = Math.round((s.mins / base) * 100);
+        const bateuMeta = s.mins >= metaMins;
+        const corFill = bateuMeta ? 'var(--success)' : 'linear-gradient(90deg, var(--accent), #8b5cf6)';
+        return `<div class="stats-bar-container">
+            <div class="stats-bar-header">
+                <span class="stats-bar-name">${fmt(s.mon)} – ${fmt(s.sun)}${i === 0 ? ' <span style="color:var(--accent);font-size:0.75rem;">(atual)</span>' : ''}${bateuMeta ? ' ✅' : ''}</span>
+                <span class="stats-bar-value">${horas}h</span>
+            </div>
+            <div class="stats-bar"><div class="stats-bar-fill" style="width:${pct}%;background:${corFill}"></div></div>
+        </div>`;
+    }).join('');
+}
+
 function renderStatsPorDisciplina() {
     const container = document.getElementById('statsPorDisciplina');
     
-    // Agrupar por disciplina
     const porDisc = {};
     state.sessoes.forEach(s => {
         if(!porDisc[s.disciplinaId]) porDisc[s.disciplinaId] = 0;
@@ -3464,7 +3531,7 @@ function renderStatsPorDisciplina() {
         const pct = (d.minutos / maxMins) * 100;
         return `<div class="stats-bar-container">
             <div class="stats-bar-header">
-                <span class="stats-bar-name">${d.nome}</span>
+                <span class="stats-bar-name">${esc(d.nome)}</span>
                 <span class="stats-bar-value">${d.horas}h</span>
             </div>
             <div class="stats-bar"><div class="stats-bar-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--accent), #8b5cf6)"></div></div>
@@ -3481,7 +3548,7 @@ function renderStatsUltimos7Dias() {
     for(let i = 6; i >= 0; i--) {
         const d = new Date(hoje);
         d.setDate(d.getDate() - i);
-        const dataStr = d.toISOString().split('T')[0];
+        const dataStr = localDateStr(d);
         const mins = state.sessoes.filter(s => s.data === dataStr).reduce((a,s) => a + s.minutos, 0);
         dias.push({
             data: dataStr,
@@ -3532,38 +3599,24 @@ function renderStatsTopicos() {
 function renderStatsComparativo() {
     const container = document.getElementById('statsComparativo');
     
-    // Calcular semana atual
     const hoje = new Date();
     const inicioSemanaAtual = getWeekStart();
     
-    // Calcular semana anterior
-    const inicioSemanaAnterior = new Date(inicioSemanaAtual);
+    const inicioSemanaAnterior = new Date(inicioSemanaAtual + 'T12:00:00');
     inicioSemanaAnterior.setDate(inicioSemanaAnterior.getDate() - 7);
-    const inicioSemanaAnteriorStr = inicioSemanaAnterior.toISOString().split('T')[0];
+    const inicioSemanaAnteriorStr = localDateStr(inicioSemanaAnterior);
     const fimSemanaAnteriorStr = inicioSemanaAtual;
     
-    // Horas semana atual
     const horasAtual = Math.round(state.sessoes.filter(s => s.data >= inicioSemanaAtual).reduce((a,s) => a + s.minutos, 0) / 60 * 10) / 10;
-    
-    // Horas semana anterior
     const horasAnterior = Math.round(state.sessoes.filter(s => s.data >= inicioSemanaAnteriorStr && s.data < fimSemanaAnteriorStr).reduce((a,s) => a + s.minutos, 0) / 60 * 10) / 10;
     
-    // Questões semana atual
     const questoesAtual = state.questoes.filter(q => q.data >= inicioSemanaAtual).reduce((a,q) => a + q.total, 0);
-    
-    // Questões semana anterior
     const questoesAnterior = state.questoes.filter(q => q.data >= inicioSemanaAnteriorStr && q.data < fimSemanaAnteriorStr).reduce((a,q) => a + q.total, 0);
     
-    // Sessões semana atual
     const sessoesAtual = state.sessoes.filter(s => s.data >= inicioSemanaAtual).length;
-    
-    // Sessões semana anterior
     const sessoesAnterior = state.sessoes.filter(s => s.data >= inicioSemanaAnteriorStr && s.data < fimSemanaAnteriorStr).length;
     
-    // Revisões semana atual
     const revisoesAtual = state.revisoes.filter(r => r.concluida && r.dataConclusao >= inicioSemanaAtual).length;
-    
-    // Revisões semana anterior
     const revisoesAnterior = state.revisoes.filter(r => r.concluida && r.dataConclusao >= inicioSemanaAnteriorStr && r.dataConclusao < fimSemanaAnteriorStr).length;
     
     function renderItem(label, atual, anterior, sufixo = '') {
@@ -3593,7 +3646,6 @@ function renderStatsComparativo() {
 function renderStatsPrevisao() {
     const container = document.getElementById('statsPrevisao');
     
-    // Total de tópicos
     const totalTopicos = state.disciplinas.reduce((a,d) => a + d.topicos.length, 0);
     const topicosDominados = state.disciplinas.reduce((a,d) => a + d.topicos.filter(t => t.status === 'mastered').length, 0);
     const topicosRestantes = totalTopicos - topicosDominados;
@@ -3603,8 +3655,6 @@ function renderStatsPrevisao() {
         return;
     }
     
-    // Calcular ritmo médio (tópicos dominados por semana nas últimas 4 semanas)
-    // Simplificado: usar média geral
     const diasEstudo = [...new Set(state.sessoes.map(s => s.data))].length || 1;
     const semanasEstudo = Math.max(1, diasEstudo / 7);
     const topicosPorSemana = topicosDominados / semanasEstudo;
@@ -3623,7 +3673,6 @@ function renderStatsPrevisao() {
         previsaoTexto = 'Domine tópicos para calcular';
     }
     
-    // Comparar com data da prova
     const dataProva = state.metas.dataProva;
     let alertaProva = '';
     if(dataProva && diasPrevisao > 0) {
@@ -3675,16 +3724,13 @@ function renderStatsRevisoes() {
 
 // QUESTÕES
 function refreshQuestoes() {
-    // Preencher select de disciplinas
     const sel = document.getElementById('questaoDisciplina');
     sel.innerHTML = '<option value="">Selecione</option>' + state.disciplinas.map(d => 
-        `<option value="${d.id}">${d.nome}</option>`
+        `<option value="${d.id}">${esc(d.nome)}</option>`
     ).join('');
     
-    // Data padrão = hoje
     document.getElementById('questaoData').value = getToday();
     
-    // Calcular estatísticas gerais
     const totalResp = state.questoes.reduce((a, q) => a + q.total, 0);
     const totalAcertos = state.questoes.reduce((a, q) => a + q.acertos, 0);
     const taxaGeral = totalResp > 0 ? Math.round((totalAcertos / totalResp) * 100) : 0;
@@ -3693,17 +3739,13 @@ function refreshQuestoes() {
     document.getElementById('qTotalAcertos').textContent = totalAcertos;
     document.getElementById('qTaxaGeral').textContent = taxaGeral + '%';
     
-    // Calcular por disciplina
     renderQuestaoPorDisciplina();
-    
-    // Renderizar histórico
     renderQuestaoHistorico();
 }
 
 function renderQuestaoPorDisciplina() {
     const container = document.getElementById('questaoPorDisciplina');
     
-    // Agrupar por disciplina
     const porDisc = {};
     state.questoes.forEach(q => {
         if(!porDisc[q.disciplinaId]) {
@@ -3713,7 +3755,6 @@ function renderQuestaoPorDisciplina() {
         porDisc[q.disciplinaId].acertos += q.acertos;
     });
     
-    // Converter para array e calcular taxas
     let ranking = Object.entries(porDisc).map(([discId, dados]) => {
         const disc = state.disciplinas.find(d => d.id === parseInt(discId) || d.id === parseFloat(discId));
         return {
@@ -3730,7 +3771,6 @@ function renderQuestaoPorDisciplina() {
         return;
     }
     
-    // Ordenar por taxa (pior primeiro para identificar pontos fracos)
     ranking.sort((a, b) => a.taxa - b.taxa);
     
     container.innerHTML = ranking.map((d, i) => {
@@ -3738,7 +3778,7 @@ function renderQuestaoPorDisciplina() {
         const emoji = d.taxa < 50 ? '🔴' : d.taxa < 70 ? '🟠' : d.taxa < 85 ? '🟡' : '🟢';
         return `<div class="disc-rank-item">
             <span class="disc-rank-pos">${emoji}</span>
-            <span class="disc-rank-name">${d.nome}</span>
+            <span class="disc-rank-name">${esc(d.nome)}</span>
             <div class="disc-rank-bar"><div class="disc-rank-fill" style="width:${d.taxa}%;background:${cor}"></div></div>
             <span class="disc-rank-taxa" style="color:${cor}">${d.taxa}%</span>
             <span class="disc-rank-count">${d.acertos}/${d.total}</span>
@@ -3766,8 +3806,8 @@ function renderQuestaoHistorico() {
         return `<div class="questao-item">
             <div class="questao-data">${full}</div>
             <div class="questao-info">
-                <div class="questao-disc">${disc?.nome || '?'}</div>
-                <div class="questao-fonte">${q.fonte || 'Sem fonte'}</div>
+                <div class="questao-disc">${esc(disc?.nome || '?')}</div>
+                <div class="questao-fonte">${esc(q.fonte || 'Sem fonte')}</div>
             </div>
             <div class="questao-resultado">
                 <div class="questao-taxa" style="color:${cor}">${taxa}%</div>
@@ -3807,7 +3847,6 @@ function registrarQuestao() {
     state.questoes.push(questao);
     saveState();
     
-    // Limpar campos
     document.getElementById('questaoFonte').value = '';
     document.getElementById('questaoTotal').value = '';
     document.getElementById('questaoAcertos').value = '';
@@ -3828,10 +3867,8 @@ function deletarQuestao(id) {
 
 // CONFIGURAÇÕES
 function refreshConfig() {
-    // Carregar intervalos atuais
     document.getElementById('configIntervalos').value = state.intervalos.join(', ');
     
-    // Mostrar estatísticas
     const stats = [
         { label: 'Disciplinas', value: state.disciplinas.length, icon: '📚' },
         { label: 'Tópicos', value: state.disciplinas.reduce((a,d) => a + d.topicos.length, 0), icon: '📖' },
@@ -3904,7 +3941,6 @@ function limparTodosDados() {
     if(!confirm('Tem certeza ABSOLUTA? Esta ação não pode ser desfeita!')) return;
     
     localStorage.removeItem(STORAGE_KEY);
-    // Criar estado completamente novo (não apenas spread)
     state = { 
         disciplinas: [], 
         sessoes: [], 
