@@ -1478,6 +1478,8 @@ const defaultState = { disciplinas: [], sessoes: [], revisoes: [], questoes: [],
 let state = loadState();
 let timerInterval = null;
 let timerRunning = false;
+let timerDisciplinaAtiva = null;
+let timerTopicoAtivo = null;
 let timerSeconds = 0;
 let timerStartTime = null;
 let timerPausedSeconds = 0;
@@ -2096,6 +2098,12 @@ function toggleQuestoesManual() {
 
 function timerStart() { 
     if(!document.getElementById('timerDisciplina').value) { showToast('Selecione disciplina!','error'); return; } 
+    // Trava a disciplina/tópico ao iniciar (imune a redesenhos do dropdown durante a sessão).
+    // Só captura ao iniciar do zero; ao retomar de uma pausa, mantém o que já estava travado.
+    if(timerPausedSeconds === 0 && timerDisciplinaAtiva === null) {
+        timerDisciplinaAtiva = parseInt(document.getElementById('timerDisciplina').value);
+        timerTopicoAtivo = parseFloat(document.getElementById('timerTopico').value) || null;
+    }
     document.getElementById('btnStart').disabled = true; 
     document.getElementById('btnPause').disabled = false; 
     document.getElementById('btnReset').disabled = false; 
@@ -2136,6 +2144,8 @@ function timerReset() {
     timerRunning = false;
     timerStartTime = null;
     timerPausedSeconds = 0;
+    timerDisciplinaAtiva = null;
+    timerTopicoAtivo = null;
     
     if(pomodoroAtivo) {
         pomodoroFase = 'foco';
@@ -2158,8 +2168,13 @@ function timerReset() {
     document.getElementById('btnSave').disabled = true; 
 }
 function timerSave() { 
-    const did = parseInt(document.getElementById('timerDisciplina').value); 
-    const tid = parseFloat(document.getElementById('timerTopico').value) || null; 
+    const did = (timerDisciplinaAtiva !== null && !isNaN(timerDisciplinaAtiva)) ? timerDisciplinaAtiva : parseInt(document.getElementById('timerDisciplina').value); 
+    const tid = (timerDisciplinaAtiva !== null) ? timerTopicoAtivo : (parseFloat(document.getElementById('timerTopico').value) || null); 
+    
+    if(isNaN(did) || !state.disciplinas.some(d => d.id === did)) {
+        showToast('Disciplina inválida — selecione novamente antes de salvar.', 'error');
+        return;
+    }
     
     let mins;
     if(pomodoroAtivo) {
