@@ -227,8 +227,22 @@
         .meta-progress-text { font-size: 0.8rem; color: var(--text-sec); margin-top: 4px; }
         .meta-progress-pct { font-size: 1.25rem; font-weight: 700; min-width: 60px; text-align: right; }
     
-        /* Visão Semanal (Seg–Dom) */
-        .semana-resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+        /* Modo Hoje */
+        .hoje-passo { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .hoje-passo-info { flex: 1; min-width: 160px; }
+        .hoje-passo-disc { font-size: 1.15rem; font-weight: 700; }
+        .hoje-passo-meta { font-size: 0.85rem; color: var(--text-sec); margin-top: 2px; }
+        .hoje-passo-badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 10px; background: rgba(99,102,241,0.15); color: var(--accent); font-weight: 600; }
+        .hoje-mini { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+        .hoje-mini-step { font-size: 0.72rem; padding: 4px 10px; border-radius: 8px; background: var(--bg-primary); color: var(--text-sec); border-left: 3px solid var(--border); }
+        /* Badge de desempenho na revisão */
+        .rev-taxa { font-size: 0.68rem; padding: 2px 7px; border-radius: 8px; font-weight: 600; margin-top: 3px; display: inline-block; }
+        .rev-taxa.good { background: rgba(16,185,129,0.15); color: var(--success); }
+        .rev-taxa.medium { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .rev-taxa.bad { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .review-item.prioritaria { box-shadow: inset 3px 0 0 var(--danger); }
+
+        /* Visão Semanal (Seg–Dom) */        .semana-resumo { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
         .semana-resumo-box { background: var(--bg-primary); padding: 14px; border-radius: 8px; text-align: center; }
         .semana-resumo-valor { font-size: 1.4rem; font-weight: 700; }
         .semana-resumo-label { font-size: 0.75rem; color: var(--text-muted); }
@@ -551,6 +565,10 @@
         <div class="page active" id="page-dashboard">
             <h1 class="page-title">Dashboard</h1>
             <p class="page-sub">Visão geral do seu progresso</p>
+            <div class="card" id="modoHojeCard" style="display:none;border-left:4px solid var(--accent);">
+                <div class="card-header"><div class="card-title">🎯 Foco de Hoje</div><button class="btn btn-sm btn-secondary" onclick="navTo('ciclos')">Ver ciclo</button></div>
+                <div id="modoHojeConteudo"></div>
+            </div>
             <div class="stats-grid">
                 <div class="stat-card purple"><div class="stat-label">Horas (Semana)</div><div class="stat-value" id="statHoras">0h</div><div class="stat-sub">Meta: <span id="statMetaHoras">49</span>h</div></div>
                 <div class="stat-card green"><div class="stat-label">Tópicos Dominados</div><div class="stat-value" id="statTopicos">0</div><div class="stat-sub">de <span id="statTotalTopicos">0</span></div></div>
@@ -1356,6 +1374,7 @@ async function carregarDaNuvem() {
         
         // Atualizar interface
         refreshAll();
+        verificarBackup();
         
     } catch(error) {
         console.error('Erro ao carregar:', error);
@@ -1575,6 +1594,7 @@ function refreshDashboard() {
     if(!revHoje.length) { rh.innerHTML = '<div class="empty"><div class="empty-icon">✨</div><div>Nenhuma revisão hoje!</div></div>'; }
     else { rh.innerHTML = revHoje.slice(0,5).map(r => { const disc = state.disciplinas.find(d => d.id === r.disciplinaId); const top = disc?.topicos.find(t => t.id === r.topicoId); const {day,month} = formatDate(r.data); return '<div class="review-item pending"><div class="review-date"><div class="review-day">'+day+'</div><div class="review-month">'+month+'</div></div><div class="review-info"><div class="review-subject">'+esc(disc?.nome||'?')+'</div><div class="review-topic">'+esc(top?.nome||'Geral')+'</div></div><button class="btn btn-sm btn-success" onclick="concluirRev('+r.id+')">✓</button></div>'; }).join(''); }
     refreshStreakXP();
+    renderModoHoje();
     const dp = document.getElementById('disciplinasProgress');
     if(!state.disciplinas.length) { dp.innerHTML = '<div class="empty"><div class="empty-icon">📚</div><div>Cadastre disciplinas</div></div>'; }
     else { dp.innerHTML = state.disciplinas.map(d => { const t = d.topicos.length; const done = d.topicos.filter(x => x.status && x.status !== 'not-studied').length; const comSessao = d.topicos.filter(x => state.sessoes.some(s => s.topicoId === x.id)).length; const total = Math.max(done, comSessao); const pct = t > 0 ? Math.round((total/t)*100) : 0; return '<div class="disc-item"><div class="disc-header"><span class="disc-name">'+esc(d.nome)+'</span><span class="disc-pct">'+pct+'%</span></div><div class="disc-bar"><div class="disc-fill" style="width:'+pct+'%"></div></div></div>'; }).join(''); }
@@ -2177,6 +2197,7 @@ function timerSave() {
     
     saveState(); 
     timerReset(); 
+    concluirPassoEmExecucao();
     showToast('Sessão de '+formatMins(mins)+' salva!' + (gerarRev ? ' Revisões criadas.' : '') + questoesMsg); 
     renderHistorico(); 
 }
@@ -2403,6 +2424,99 @@ function deleteSessao(id) {
     refreshDashboard();
 }
 
+// ===== MODO HOJE (próximo passo do ciclo) =====
+let passoEmExecucao = null;
+
+function proximoPassoCiclo() {
+    if(!state.ultimoCiclo || !state.ultimoCiclo.length) return null;
+    const prog = state.cicloProgresso || [];
+    // Prioriza um passo "em andamento"; senão, o primeiro não concluído
+    let idx = prog.findIndex(p => p === 'andamento');
+    if(idx === -1) idx = state.ultimoCiclo.findIndex((_, i) => prog[i] !== true);
+    if(idx === -1) return null; // ciclo todo concluído
+    return { idx, passo: state.ultimoCiclo[idx] };
+}
+
+function renderModoHoje() {
+    const card = document.getElementById('modoHojeCard');
+    if(!card) return;
+    const prox = proximoPassoCiclo();
+    if(!prox) { card.style.display = 'none'; return; }
+
+    const total = state.ultimoCiclo.length;
+    const concluidos = (state.cicloProgresso || []).filter(p => p === true).length;
+    const p = prox.passo;
+
+    // Mini-preview dos próximos 3 passos
+    const prog = state.cicloProgresso || [];
+    let proximos = [];
+    for(let i = prox.idx + 1; i < total && proximos.length < 3; i++) {
+        if(prog[i] !== true) proximos.push(state.ultimoCiclo[i]);
+    }
+
+    card.style.display = 'block';
+    document.getElementById('modoHojeConteudo').innerHTML = `
+        <div class="hoje-passo">
+            <div class="hoje-passo-info">
+                <span class="hoje-passo-badge">Passo ${prox.idx + 1} de ${total} • ${concluidos} concluídos</span>
+                <div class="hoje-passo-disc" style="border-left:4px solid ${p.cor};padding-left:10px;margin-top:8px;">${esc(p.nome)}</div>
+                <div class="hoje-passo-meta">⏱️ Tempo sugerido: ${p.minutos} min</div>
+            </div>
+            <button class="btn btn-primary" onclick="iniciarPassoCiclo(${prox.idx})">▶️ Estudar agora</button>
+        </div>
+        ${proximos.length ? '<div class="hoje-mini">' + proximos.map(x => `<span class="hoje-mini-step" style="border-left-color:${x.cor}">${esc(x.nome)} • ${x.minutos}min</span>`).join('') + '</div>' : ''}
+    `;
+}
+
+function iniciarPassoCiclo(idx) {
+    const passo = state.ultimoCiclo?.[idx];
+    if(!passo) return;
+    // Marca como "em andamento" no ciclo
+    if(!state.cicloProgresso) state.cicloProgresso = [];
+    while(state.cicloProgresso.length < state.ultimoCiclo.length) state.cicloProgresso.push(false);
+    for(let i = 0; i < state.cicloProgresso.length; i++) {
+        if(state.cicloProgresso[i] === 'andamento') state.cicloProgresso[i] = false;
+    }
+    state.cicloProgresso[idx] = 'andamento';
+    saveState();
+
+    passoEmExecucao = idx;
+
+    // Vai para o Registro e pré-preenche a disciplina do passo
+    navTo('registro');
+    setTimeout(() => {
+        const sel = document.getElementById('timerDisciplina');
+        const disc = state.disciplinas.find(d => d.id === passo.id) ||
+                     state.disciplinas.find(d => d.nome === passo.nome);
+        if(sel && disc) {
+            sel.value = String(disc.id);
+            updateTimerTopicos();
+        }
+        showToast('Passo iniciado: ' + passo.nome + '. Inicie o timer quando começar.');
+    }, 120);
+}
+
+function concluirPassoEmExecucao() {
+    if(passoEmExecucao === null) return;
+    if(!state.cicloProgresso) state.cicloProgresso = [];
+    while(state.cicloProgresso.length < (state.ultimoCiclo?.length || 0)) state.cicloProgresso.push(false);
+    state.cicloProgresso[passoEmExecucao] = true;
+    passoEmExecucao = null;
+    saveState();
+    showToast('✅ Passo do ciclo concluído!');
+}
+
+// ===== TAXA DE ACERTO POR TÓPICO (revisão por desempenho) =====
+function taxaTopico(topicoId) {
+    if(!topicoId) return null;
+    const qs = state.questoes.filter(q => q.topicoId === topicoId);
+    if(!qs.length) return null;
+    const total = qs.reduce((a,q) => a + q.total, 0);
+    const acertos = qs.reduce((a,q) => a + q.acertos, 0);
+    if(total === 0) return null;
+    return Math.round((acertos / total) * 100);
+}
+
 // DISCIPLINAS - CORRIGIDO
 function refreshDisciplinas() {
     const c = document.getElementById('listaDisciplinas');
@@ -2516,8 +2630,16 @@ function renderRevList() {
     else if(currentRevTab === 'atrasadas') { lista = state.revisoes.filter(r => !r.concluida && r.data < hoje); emptyMsg = 'Nenhuma revisão atrasada! ✨'; }
     else { lista = state.revisoes.filter(r => r.concluida); emptyMsg = 'Nenhuma revisão concluída ainda.'; }
     if(!lista.length) { c.innerHTML = '<div class="empty"><div class="empty-icon">'+(currentRevTab === 'atrasadas' ? '✨' : '📋')+'</div><div>'+emptyMsg+'</div></div>'; return; }
-    lista.sort((a,b) => { if(currentRevTab === 'concluidas') return (b.dataConclusao||'').localeCompare(a.dataConclusao||''); return a.data.localeCompare(b.data); });
-    c.innerHTML = lista.slice(0, 50).map(r => { const disc = state.disciplinas.find(d => d.id === r.disciplinaId); const top = disc?.topicos.find(t => t.id === r.topicoId); const {day, month, full} = formatDate(r.data); const isOverdue = !r.concluida && r.data < hoje; const isDone = r.concluida; const statusClass = isDone ? 'done' : (isOverdue ? 'overdue' : 'pending'); const badgeClass = isDone ? 'badge-done' : (isOverdue ? 'badge-overdue' : 'badge-pending'); const badgeText = isDone ? 'Concluída' : (isOverdue ? 'Atrasada' : 'Pendente'); return '<div class="review-item '+statusClass+'"><div class="review-date"><div class="review-day">'+day+'</div><div class="review-month">'+month+'</div></div><div class="review-info"><div class="review-subject">'+esc(disc?.nome||'?')+'</div><div class="review-topic">'+esc(top?.nome||'Geral')+'</div><div class="review-interval">R'+r.intervalo+' • '+full+'</div></div><span class="badge '+badgeClass+'">'+badgeText+'</span>'+(!isDone ? '<div class="review-actions"><button class="btn btn-sm btn-success" onclick="concluirRev('+r.id+')">✓</button><button class="btn btn-sm btn-secondary" onclick="adiarRev('+r.id+')">→</button></div>' : '')+'</div>'; }).join('');
+    lista.sort((a,b) => {
+        if(currentRevTab === 'concluidas') return (b.dataConclusao||'').localeCompare(a.dataConclusao||'');
+        // Por desempenho: mesma data -> tópicos com menor taxa de acerto primeiro
+        const byDate = a.data.localeCompare(b.data);
+        if(byDate !== 0) return byDate;
+        const ta = taxaTopico(a.topicoId); const tb = taxaTopico(b.topicoId);
+        const va = (ta === null ? 999 : ta); const vb = (tb === null ? 999 : tb);
+        return va - vb;
+    });
+    c.innerHTML = lista.slice(0, 50).map(r => { const disc = state.disciplinas.find(d => d.id === r.disciplinaId); const top = disc?.topicos.find(t => t.id === r.topicoId); const {day, month, full} = formatDate(r.data); const isOverdue = !r.concluida && r.data < hoje; const isDone = r.concluida; const statusClass = isDone ? 'done' : (isOverdue ? 'overdue' : 'pending'); const badgeClass = isDone ? 'badge-done' : (isOverdue ? 'badge-overdue' : 'badge-pending'); const badgeText = isDone ? 'Concluída' : (isOverdue ? 'Atrasada' : 'Pendente'); const taxa = taxaTopico(r.topicoId); let taxaHtml=''; let prioClass=''; if(taxa !== null && !isDone){ const cls = taxa>=70?'good':taxa>=50?'medium':'bad'; if(taxa<50) prioClass=' prioritaria'; taxaHtml='<div class="rev-taxa '+cls+'">'+(taxa<50?'⚠️ ':'')+'desempenho: '+taxa+'%</div>'; } return '<div class="review-item '+statusClass+prioClass+'"><div class="review-date"><div class="review-day">'+day+'</div><div class="review-month">'+month+'</div></div><div class="review-info"><div class="review-subject">'+esc(disc?.nome||'?')+'</div><div class="review-topic">'+esc(top?.nome||'Geral')+'</div><div class="review-interval">R'+r.intervalo+' • '+full+'</div>'+taxaHtml+'</div><span class="badge '+badgeClass+'">'+badgeText+'</span>'+(!isDone ? '<div class="review-actions"><button class="btn btn-sm btn-success" onclick="concluirRev('+r.id+')">✓</button><button class="btn btn-sm btn-secondary" onclick="adiarRev('+r.id+')">→</button></div>' : '')+'</div>'; }).join('');
 }
 function concluirRev(id) { const r = state.revisoes.find(x => x.id === id); if(r) { r.concluida = true; r.dataConclusao = getToday(); saveState(); showToast('Revisão concluída!'); refreshRevisoes(); refreshDashboard(); } }
 function adiarRev(id) { const r = state.revisoes.find(x => x.id === id); if(r) { const d = new Date(r.data + 'T12:00:00'); d.setDate(d.getDate() + 1); r.data = localDateStr(d); saveState(); showToast('Adiada para ' + formatDate(r.data).full); refreshRevisoes(); } }
@@ -3146,7 +3268,7 @@ function gerarCicloEspacado(distribuicao, totalPassos) {
         const maisFrequentes = candidatos.filter(c => contagem[c.id] === maxCount);
         
         const escolhido = maisFrequentes[0];
-        ciclo.push({ nome: escolhido.nome, cor: escolhido.cor, minutos: escolhido.minutos });
+        ciclo.push({ id: escolhido.id, nome: escolhido.nome, cor: escolhido.cor, minutos: escolhido.minutos });
         lastId = escolhido.id;
         
         const idx = pool.findIndex(p => p.id === escolhido.id);
@@ -3875,7 +3997,8 @@ function refreshConfig() {
         { label: 'Sessões', value: state.sessoes.length, icon: '📝' },
         { label: 'Revisões', value: state.revisoes.length, icon: '🔄' },
         { label: 'Questões', value: state.questoes.reduce((a,q) => a + q.total, 0), icon: '❓' },
-        { label: 'Horas Totais', value: Math.round(state.sessoes.reduce((a,s) => a + s.minutos, 0) / 60 * 10) / 10 + 'h', icon: '⏱️' }
+        { label: 'Horas Totais', value: Math.round(state.sessoes.reduce((a,s) => a + s.minutos, 0) / 60 * 10) / 10 + 'h', icon: '⏱️' },
+        { label: 'Último Backup', value: (state.ultimoBackup ? formatDate(state.ultimoBackup).full : 'Nunca'), icon: '💾' }
     ];
     
     document.getElementById('configStats').innerHTML = stats.map(s => 
@@ -3896,7 +4019,31 @@ function exportarDados() {
     a.download = 'estudospro-backup-' + getToday() + '.json';
     a.click();
     URL.revokeObjectURL(url);
+    state.ultimoBackup = getToday();
+    saveState();
+    refreshConfig();
     showToast('Backup exportado!');
+}
+
+// ===== BACKUP AUTOMÁTICO (lembrete) =====
+function diasDesdeUltimoBackup() {
+    if(!state.ultimoBackup) return null;
+    const d1 = new Date(state.ultimoBackup + 'T00:00:00');
+    const d2 = new Date(getToday() + 'T00:00:00');
+    return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+}
+
+function verificarBackup() {
+    // Só sugere se já houver dados relevantes
+    if(!state.sessoes.length && !state.disciplinas.length) return;
+    const dias = diasDesdeUltimoBackup();
+    // Nunca exportou, ou faz mais de 14 dias
+    if(dias === null || dias >= 14) {
+        const msg = dias === null
+            ? '💾 Dica: faça um backup dos seus dados em Configurações.'
+            : '💾 Último backup há ' + dias + ' dias. Considere exportar em Configurações.';
+        setTimeout(() => showToast(msg), 1500);
+    }
 }
 
 function importarDados(event) {
