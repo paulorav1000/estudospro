@@ -743,7 +743,12 @@
                     </div>
                     
                     <div class="form-group">
-                        <label class="form-label">Disciplinas no Ciclo</label>
+                        <label class="form-label">Disciplinas no Ciclo <span id="cicloDiscCount" style="color:var(--accent);font-weight:700;"></span></label>
+                        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                            <button class="btn btn-sm btn-secondary" type="button" onclick="cicloSelecionarTodas(true)">✓ Todas</button>
+                            <button class="btn btn-sm btn-secondary" type="button" onclick="cicloSelecionarTodas(false)">✕ Limpar</button>
+                            <input type="text" class="form-input" id="cicloFiltro" placeholder="🔍 Filtrar disciplina..." style="flex:1;min-width:120px;padding:6px 10px;font-size:0.8rem;" oninput="cicloFiltrarDisc()">
+                        </div>
                         <div id="cicloDiscList" style="max-height:250px;overflow-y:auto;background:var(--bg-primary);border-radius:8px;padding:12px;">
                             <div class="empty"><div class="empty-icon">📚</div><div>Cadastre disciplinas primeiro</div></div>
                         </div>
@@ -766,7 +771,8 @@
                     <div class="card-title">📋 Ciclo Gerado</div>
                     <div style="display:flex;gap:8px;align-items:center;">
                         <span id="cicloResumo" style="font-size:0.8rem;color:var(--text-muted);"></span>
-                        <button class="btn btn-sm btn-secondary" onclick="resetarProgressoCiclo()" id="btnResetCiclo" style="display:none;">🔄 Resetar</button>
+                        <button class="btn btn-sm btn-secondary" onclick="resetarProgressoCiclo()" id="btnResetCiclo" style="display:none;" title="Apaga só o progresso (mantém o ciclo)">🔄 Resetar progresso</button>
+                        <button class="btn btn-sm btn-danger" onclick="limparCiclo()" id="btnLimparCiclo" style="display:none;" title="Apaga o ciclo gerado e desmarca disciplinas">🗑️ Limpar ciclo</button>
                         <button class="btn btn-sm btn-secondary" onclick="copiarCiclo()" id="btnCopiarCiclo" style="display:none;">📋 Copiar</button>
                     </div>
                 </div>
@@ -3051,8 +3057,8 @@ function refreshCiclos() {
         return;
     }
     container.innerHTML = state.disciplinas.map(d => 
-        `<div class="ciclo-disc-item">
-            <input type="checkbox" id="ciclo-disc-${d.id}">
+        `<div class="ciclo-disc-item" data-nome="${esc(d.nome).toLowerCase()}">
+            <input type="checkbox" id="ciclo-disc-${d.id}" onchange="cicloAtualizarContador()">
             <label class="ciclo-disc-name" for="ciclo-disc-${d.id}">${esc(d.nome)}</label>
             <span class="ciclo-disc-peso">${pesoToShort(d.peso)} Peso ${d.peso}</span>
         </div>`
@@ -3072,9 +3078,40 @@ function refreshCiclos() {
         }
     }
     
+    cicloAtualizarContador();
+    const filtro = document.getElementById('cicloFiltro');
+    if(filtro) filtro.value = '';
+    
     if(state.ultimoCiclo && state.ultimoCiclo.length > 0) {
         restaurarCicloVisual();
     }
+}
+
+function cicloAtualizarContador() {
+    const marcadas = state.disciplinas.filter(d => {
+        const cb = document.getElementById('ciclo-disc-' + d.id);
+        return cb && cb.checked;
+    }).length;
+    const el = document.getElementById('cicloDiscCount');
+    if(el) el.textContent = marcadas > 0 ? '(' + marcadas + ' selecionada' + (marcadas > 1 ? 's' : '') + ')' : '';
+}
+
+function cicloSelecionarTodas(marcar) {
+    // Respeita o filtro: só altera itens visíveis
+    document.querySelectorAll('#cicloDiscList .ciclo-disc-item').forEach(item => {
+        if(item.style.display === 'none') return;
+        const cb = item.querySelector('input[type="checkbox"]');
+        if(cb) cb.checked = marcar;
+    });
+    cicloAtualizarContador();
+}
+
+function cicloFiltrarDisc() {
+    const termo = (document.getElementById('cicloFiltro').value || '').toLowerCase().trim();
+    document.querySelectorAll('#cicloDiscList .ciclo-disc-item').forEach(item => {
+        const nome = item.dataset.nome || '';
+        item.style.display = (!termo || nome.includes(termo)) ? '' : 'none';
+    });
 }
 
 function restaurarCicloVisual() {
@@ -3112,6 +3149,7 @@ function restaurarCicloVisual() {
     document.getElementById('cicloResumo').textContent = totalPassos + ' passos • ' + horasSemana + 'h/semana';
     document.getElementById('btnCopiarCiclo').style.display = 'inline-flex';
     document.getElementById('btnResetCiclo').style.display = 'inline-flex';
+    document.getElementById('btnLimparCiclo').style.display = 'inline-flex';
     
     atualizarProgressoCiclo();
 }
@@ -3191,6 +3229,7 @@ function gerarCiclo() {
     document.getElementById('cicloResumo').textContent = `${totalPassos} passos • ${horasSemana}h/semana`;
     document.getElementById('btnCopiarCiclo').style.display = 'inline-flex';
     document.getElementById('btnResetCiclo').style.display = 'inline-flex';
+    document.getElementById('btnLimparCiclo').style.display = 'inline-flex';
     
     state.ultimoCiclo = cicloDetalhado;
     state.ultimoCicloConfig = { totalPassos, horasSemana, distribuicao };
@@ -3354,11 +3393,39 @@ function atualizarProgressoCiclo() {
 }
 
 function resetarProgressoCiclo() {
-    if(!confirm('Resetar o progresso do ciclo?')) return;
+    if(!confirm('Resetar o progresso do ciclo? (mantém o ciclo gerado)')) return;
     state.cicloProgresso = [];
     saveState();
     atualizarVisualCiclo();
     showToast('Progresso resetado!');
+}
+
+function limparCiclo() {
+    if(!confirm('Limpar o ciclo gerado? Isso apaga o ciclo e o progresso, e desmarca as disciplinas. As disciplinas em si NÃO são excluídas.')) return;
+    state.ultimoCiclo = null;
+    state.ultimoCicloConfig = null;
+    state.cicloProgresso = [];
+    saveState();
+
+    // Desmarcar checkboxes
+    state.disciplinas.forEach(d => {
+        const cb = document.getElementById('ciclo-disc-' + d.id);
+        if(cb) cb.checked = false;
+    });
+    cicloAtualizarContador();
+
+    // Restaurar visual vazio
+    document.getElementById('cicloResultado').innerHTML = '<div class="empty"><div class="empty-icon">🔁</div><div>Configure e gere seu ciclo de estudos</div></div>';
+    document.getElementById('cicloChart').innerHTML = '<div class="empty"><div class="empty-icon">🥧</div><div>Gere um ciclo para ver o gráfico</div></div>';
+    document.getElementById('cicloLegenda').innerHTML = '';
+    document.getElementById('cicloResumo').textContent = '';
+    document.getElementById('btnResetCiclo').style.display = 'none';
+    document.getElementById('btnLimparCiclo').style.display = 'none';
+    document.getElementById('btnCopiarCiclo').style.display = 'none';
+
+    // Atualiza Dashboard (Foco de Hoje deve sumir)
+    if(typeof renderModoHoje === 'function') renderModoHoje();
+    showToast('Ciclo limpo!');
 }
 
 function copiarCiclo() {
