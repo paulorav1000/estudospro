@@ -3287,33 +3287,43 @@ function renderLegenda(distribuicao, horasSemana) {
 }
 
 function gerarCicloEspacado(distribuicao, totalPassos) {
-    let pool = [];
-    distribuicao.forEach(d => {
-        for(let i = 0; i < d.passos; i++) {
-            pool.push({ nome: d.nome, id: d.id, cor: d.cor, minutos: d.minutosPorPasso });
-        }
-    });
-    
+    // Algoritmo de espaçamento uniforme:
+    // cada disciplina recebe um "passo ideal" (stride = total / nº de passos da disciplina).
+    // A cada slot, escolhemos a disciplina mais "atrasada" em relação ao seu ideal,
+    // evitando repetir a mesma disciplina em sequência sempre que possível.
+    const items = distribuicao
+        .filter(d => d.passos > 0)
+        .map(d => ({
+            id: d.id,
+            nome: d.nome,
+            cor: d.cor,
+            minutos: d.minutosPorPasso,
+            restante: d.passos,
+            stride: totalPassos / d.passos,
+            // primeira posição ideal centralizada dentro do seu intervalo
+            proximo: (totalPassos / d.passos) / 2
+        }));
+
     const ciclo = [];
     let lastId = null;
-    
+
     for(let i = 0; i < totalPassos; i++) {
-        let candidatos = pool.filter(p => p.id !== lastId);
-        if(candidatos.length === 0) candidatos = pool;
-        
-        const contagem = {};
-        candidatos.forEach(c => { contagem[c.id] = (contagem[c.id] || 0) + 1; });
-        const maxCount = Math.max(...Object.values(contagem));
-        const maisFrequentes = candidatos.filter(c => contagem[c.id] === maxCount);
-        
-        const escolhido = maisFrequentes[0];
+        // candidatos com passos restantes e diferentes do último (evita repetição consecutiva)
+        let cand = items.filter(it => it.restante > 0 && it.id !== lastId);
+        // se só sobrou a mesma disciplina, aí sim permite repetir
+        if(cand.length === 0) cand = items.filter(it => it.restante > 0);
+        if(cand.length === 0) break;
+
+        // mais "atrasado" primeiro (menor 'proximo'); empate -> quem tem mais passos restantes
+        cand.sort((a, b) => (a.proximo - b.proximo) || (b.restante - a.restante));
+
+        const escolhido = cand[0];
         ciclo.push({ id: escolhido.id, nome: escolhido.nome, cor: escolhido.cor, minutos: escolhido.minutos });
+        escolhido.restante--;
+        escolhido.proximo += escolhido.stride;
         lastId = escolhido.id;
-        
-        const idx = pool.findIndex(p => p.id === escolhido.id);
-        if(idx > -1) pool.splice(idx, 1);
     }
-    
+
     return ciclo;
 }
 
