@@ -3216,12 +3216,12 @@ function gerarCiclo() {
         }
     }
     
-    // Recalcula tempo/percentual a partir dos passos FINAIS (legenda bate com o ciclo)
-    const totalPassosFinal = distribuicao.reduce((a, d) => a + d.passos, 0);
+    // O TEMPO de cada disciplina é proporcional ao PESO (não ao nº de passos).
+    // Assim, disciplinas mais pesadas recebem mais minutos por passo / mais tempo total.
     distribuicao.forEach(d => {
-        d.pctTempo = (d.passos / totalPassosFinal) * 100;
-        d.horasSemana = (d.passos / totalPassosFinal) * horasSemana;
-        d.minutosPorPasso = Math.round((d.horasSemana * 60) / d.passos);
+        d.pctTempo = (d.peso / totalPeso) * 100;
+        d.horasSemana = (d.peso / totalPeso) * horasSemana;
+        d.minutosPorPasso = Math.max(1, Math.round((d.horasSemana * 60) / d.passos));
     });
     
     renderPizzaChart(distribuicao);
